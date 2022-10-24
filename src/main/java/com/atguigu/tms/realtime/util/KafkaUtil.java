@@ -1,5 +1,7 @@
 package com.atguigu.tms.realtime.util;
 
+import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONObject;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.utils.ParameterTool;
@@ -10,7 +12,9 @@ import org.apache.flink.streaming.connectors.kafka.KafkaSerializationSchema;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.clients.producer.ProducerRecord;
 
+import javax.annotation.Nullable;
 import java.util.Properties;
 
 public class KafkaUtil {
@@ -107,6 +111,31 @@ public class KafkaUtil {
 
         return getKafkaProducer(topic, args);
     }
-    
-    public static FlinkKafkaProducer<String> getKafkaProducerWithSchema(String )
+
+    public static FlinkKafkaProducer<String> getKafkaProducerWithSchema(String[] args) {
+        ParameterTool parameterTool = ParameterTool.fromArgs(args);
+        Properties producerConfig = new Properties();
+
+        String bootstrapServers = parameterTool.get(
+                "bootstrap-servers", "hadoop102:9092, hadoop103:9092, hadoop104:9092");
+        producerConfig.setProperty(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        producerConfig.setProperty(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
+                "org.apache.common.serialization.kafka.StringSerializer");
+        producerConfig.setProperty(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
+                "org.apache.common.serialization.kafka.StringSerializer");
+
+        return new FlinkKafkaProducer<String>(
+                "default_topic",
+                new KafkaSerializationSchema<String>() {
+                    @Override
+                    public ProducerRecord<byte[], byte[]> serialize(String element, @Nullable Long timestamp) {
+                        JSONObject jsonObj = JSON.parseObject(element);
+                        String topic = jsonObj.getString("topic");
+                        return new ProducerRecord<byte[], byte[]>(topic, element.getBytes());
+                    }
+                },
+                producerConfig,
+                FlinkKafkaProducer.Semantic.EXACTLY_ONCE
+        );
+    }
 }
