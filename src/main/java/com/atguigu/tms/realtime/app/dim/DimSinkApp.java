@@ -3,15 +3,14 @@ package com.atguigu.tms.realtime.app.dim;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.atguigu.tms.realtime.app.func.MyBroadcastFunction;
+import com.atguigu.tms.realtime.app.func.MyPhoenixSink;
+import com.atguigu.tms.realtime.bean.TmsConfigDim;
 import com.atguigu.tms.realtime.util.CreateEnvUtil;
 import com.atguigu.tms.realtime.util.KafkaUtil;
 import com.ververica.cdc.connectors.mysql.source.MySqlSource;
-import com.ververica.cdc.connectors.mysql.table.StartupOptions;
-import com.ververica.cdc.debezium.JsonDebeziumDeserializationSchema;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.common.state.MapStateDescriptor;
-import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.datastream.*;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer;
@@ -28,7 +27,7 @@ public class DimSinkApp {
         FlinkKafkaConsumer<String> kafkaConsumer = KafkaUtil.getKafkaConsumer(topic, groupId, args);
         DataStreamSource<String> source = env.addSource(kafkaConsumer);
 
-        // TODO 3. 主流 ETL
+        // TODO 3. 主流数据筛选及
         SingleOutputStreamOperator<String> filteredStream = source.filter(
                 new FilterFunction<String>() {
                     @Override
@@ -50,40 +49,26 @@ public class DimSinkApp {
         );
 
         // TODO 4. 读取配置流
-        ParameterTool parameterTool = ParameterTool.fromArgs(args);
-        String mysqlHostname = parameterTool.get("mysql-hostname", "hadoop102");
-        int mysqlPort = Integer.parseInt(parameterTool.get("mysql-port", "3306"));
-        String mysqlUsername = parameterTool.get("mysql-username", "root");
-        String mysqlPasswd = parameterTool.get("mysql-passwd", "000000");
-
-        MySqlSource<String> mySqlSource = MySqlSource.<String>builder()
-                .hostname(mysqlHostname)
-                .port(mysqlPort)
-                .username(mysqlUsername)
-                .password(mysqlPasswd)
-                .databaseList("tms_config")
-                .tableList("tms_config.tms_config_dim")
-                .deserializer(new JsonDebeziumDeserializationSchema())
-                .startupOptions(StartupOptions.initial())
-                .build();
+        MySqlSource<String> mySqlSource = CreateEnvUtil.getJSONSchemaMysqlSource("config_dim", "6000", args);
         DataStreamSource<String> configSource =
                 env.fromSource(mySqlSource, WatermarkStrategy.noWatermarks(), "mysql-source");
 
         configSource.setParallelism(1);
 
         // TODO 5. 广播配置流
-        MapStateDescriptor<String, String> broadcastStateDescriptor =
-                new MapStateDescriptor<>("tms-dim-config", String.class, String.class);
+        MapStateDescriptor<String, TmsConfigDim> broadcastStateDescriptor =
+                new MapStateDescriptor<>("tms-dim-config", String.class, TmsConfigDim.class);
         BroadcastStream<String> broadcastStream = configSource.broadcast(broadcastStateDescriptor);
         BroadcastConnectedStream<String, String> connectedStream =
                 filteredStream.connect(broadcastStream);
 
         // TODO 6. 处理连接流
-        connectedStream.process(
-                new MyBroadcastFunction(mysqlUsername, mysqlPasswd, broadcastStateDescriptor)
+        SingleOutputStreamOperator<JSONObject> processedStream = connectedStream.process(
+                new MyBroadcastFunction(args, broadcastStateDescriptor)
         );
 
-
+        // TODO 7. 将数据写出到 Phoenix
+        processedStream.addSink(new MyPhoenixSink());
 
         env.execute();
     }

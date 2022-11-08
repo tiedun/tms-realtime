@@ -33,20 +33,20 @@
 
         <dependency>
             <groupId>org.apache.flink</groupId>
-            <artifactId>flink-streaming-java_${scala.version}</artifactId>
+            <artifactId>flink-streaming-java_2.12</artifactId>
             <version>${flink.version}</version>
             <scope>provided</scope>
         </dependency>
 
         <dependency>
             <groupId>org.apache.flink</groupId>
-            <artifactId>flink-connector-kafka_${scala.version}</artifactId>
+            <artifactId>flink-connector-kafka_2.12</artifactId>
             <version>${flink.version}</version>
         </dependency>
 
         <dependency>
             <groupId>org.apache.flink</groupId>
-            <artifactId>flink-clients_${scala.version}</artifactId>
+            <artifactId>flink-clients_2.12</artifactId>
             <version>${flink.version}</version>
         </dependency>
 
@@ -111,7 +111,7 @@
         </dependency>
         <dependency>
             <groupId>org.apache.flink</groupId>
-            <artifactId>flink-connector-jdbc_${scala.version}</artifactId>
+            <artifactId>flink-connector-jdbc_2.12</artifactId>
             <version>${flink.version}</version>
         </dependency>
 
@@ -144,14 +144,14 @@
 
         <dependency>
             <groupId>org.apache.flink</groupId>
-            <artifactId>flink-table-planner-blink_${scala.version}</artifactId>
+            <artifactId>flink-table-planner_${scala.version}</artifactId>
             <version>${flink.version}</version>
             <scope>provided</scope>
         </dependency>
 
         <dependency>
             <groupId>org.apache.flink</groupId>
-            <artifactId>flink-cep_${scala.version}</artifactId>
+            <artifactId>flink-cep_2.12</artifactId>
             <version>${flink.version}</version>
         </dependency>
 

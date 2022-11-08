@@ -20,7 +20,7 @@ public class FlinkCdcTest {
                 .username("root")
                 .password("000000")
                 .databaseList("tms")
-                .tableList("tms_config.tms_config_dim")
+                .tableList(".*")
                 .deserializer(new JsonDebeziumDeserializationSchema())
                 .startupOptions(StartupOptions.initial())
                 .build();

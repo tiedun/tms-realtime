@@ -2,6 +2,7 @@ package com.atguigu.tms.realtime.util;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
+import com.esotericsoftware.minlog.Log;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.utils.ParameterTool;
@@ -17,18 +18,34 @@ import org.apache.kafka.clients.producer.ProducerRecord;
 import javax.annotation.Nullable;
 import java.util.Properties;
 
+import static org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer.Semantic.EXACTLY_ONCE;
+
 public class KafkaUtil {
+
+    private static final String DEFAULT_TOPIC = "default_topic";
 
     /**
      * 指定主题和消费者组获取 FlinkKafkaConsumer 对象
-     * @param topic 主题
+     *
+     * @param topic   主题
      * @param groupId 消费者组
-     * @param args 命令行参数数组
+     * @param args    命令行参数数组
      * @return FlinkKafkaConsumer 实例
      */
     public static FlinkKafkaConsumer<String> getKafkaConsumer(String topic, String groupId, String[] args) {
         Properties consumerProp = new Properties();
         ParameterTool parameterTool = ParameterTool.fromArgs(args);
+        topic = parameterTool.get("topic", topic);
+        groupId = parameterTool.get("group-id", groupId);
+
+        if (topic == null) {
+            throw new IllegalArgumentException("Topic cannot be null!");
+        }
+
+        if (groupId == null) {
+            throw new IllegalArgumentException("GroupId cannot be null!");
+        }
+
         String offsetReset = parameterTool.get("offset-reset", "latest");
         String bootstrapServers = parameterTool.get(
                 "bootstrap-servers", "hadoop102:9092,hadoop103:9092,hadoop104:9092");
@@ -51,7 +68,7 @@ public class KafkaUtil {
 
                     @Override
                     public String deserialize(ConsumerRecord<byte[], byte[]> record) throws Exception {
-                        if(record != null && record.value() != null) {
+                        if (record != null && record.value() != null) {
                             return new String(record.value());
                         }
                         return null;
@@ -66,76 +83,73 @@ public class KafkaUtil {
     }
 
     /**
-     * 通过命令行参数获取主题和消费者组，获取 FlinkKafkaConsumer 实例
-     * @param args 命令行参数数组
-     * @return FlinkKafkaConsumer 实例
-     */
-    public static FlinkKafkaConsumer<String> getKafkaConsumer(String[] args) {
-        ParameterTool parameterTool = ParameterTool.fromArgs(args);
-
-        String topic = parameterTool.get("topic", "default_topic");
-        String groupId = parameterTool.get("group-id", "default_group");
-        return getKafkaConsumer(topic, groupId, args);
-    }
-
-    /**
      * 指定 topic 获取 FlinkKafkaProducer 实例
+     *
      * @param topic 主题
-     * @param args 命令行参数数组
+     * @param args  命令行参数数组
      * @return FlinkKafkaProducer 实例
      */
     public static FlinkKafkaProducer<String> getKafkaProducer(String topic, String[] args) {
         Properties producerProp = new Properties();
         ParameterTool parameterTool = ParameterTool.fromArgs(args);
 
+        topic = parameterTool.get("topic", topic);
+        if (topic == null) {
+            throw new IllegalArgumentException("主题名不可为空：命令行传参为空且没有默认值!");
+        }
+
         String bootstrapServers = parameterTool.get(
                 "bootstrap-severs", "hadoop102:9092, hadoop103:9092, hadoop104:9092");
+        String transactionTimeout = parameterTool.get(
+                "transaction-timeout", 15 * 60 * 1000 + "");
         producerProp.setProperty(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         producerProp.setProperty(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
-                "org.apache.kafka.common.serialization.StringSerializer");
+                "org.apache.kafka.common.serialization.ByteArraySerializer");
         producerProp.setProperty(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
-                "org.apache.kafka.common.serialization.StringSerializer");
+                "org.apache.kafka.common.serialization.ByteArraySerializer");
+        producerProp.setProperty(ProducerConfig.TRANSACTION_TIMEOUT_CONFIG, transactionTimeout);
 
-        return new FlinkKafkaProducer<String>(topic, new SimpleStringSchema(), producerProp);
+        // 内部类中使用但未声明的局部变量必须在内部类代码段之前明确分配
+        String finalTopic = topic;
+        return new FlinkKafkaProducer<String>(
+                DEFAULT_TOPIC,
+                new KafkaSerializationSchema<String>() {
+                    @Override
+                    public ProducerRecord<byte[], byte[]> serialize(String jsonStr, @Nullable Long timestamp) {
+                        return new ProducerRecord<byte[], byte[]>(finalTopic, jsonStr.getBytes());
+                    }
+                },
+                producerProp,
+                EXACTLY_ONCE);
     }
 
     /**
-     * 通过命令行参数获取主题，获取 FlinkKafkaProducer 实例
+     * 根据流中包含的目标主体信息，将数据打入 Kafka 的不同主题
+     *
      * @param args 命令行参数数组
      * @return FlinkKafkaProducer 实例
      */
-    public static FlinkKafkaProducer<String> getKafkaProducer(String[] args) {
+    public static <T> FlinkKafkaProducer<T> getKafkaProducerBySchema(
+            KafkaSerializationSchema<T> kafkaSerializationSchema, String[] args) {
         ParameterTool parameterTool = ParameterTool.fromArgs(args);
-
-        String topic = parameterTool.get("topic", "default_topic");
-
-        return getKafkaProducer(topic, args);
-    }
-
-    public static FlinkKafkaProducer<String> getKafkaProducerWithSchema(String[] args) {
-        ParameterTool parameterTool = ParameterTool.fromArgs(args);
-        Properties producerConfig = new Properties();
+        Properties producerProp = new Properties();
 
         String bootstrapServers = parameterTool.get(
                 "bootstrap-servers", "hadoop102:9092, hadoop103:9092, hadoop104:9092");
-        producerConfig.setProperty(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        producerConfig.setProperty(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
-                "org.apache.common.serialization.kafka.StringSerializer");
-        producerConfig.setProperty(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
-                "org.apache.common.serialization.kafka.StringSerializer");
+        String transactionTimeout = parameterTool.get(
+                "transaction-timeout", 15 * 60 * 1000 + "");
+        producerProp.setProperty(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        producerProp.setProperty(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
+                "org.apache.common.serialization.kafka.ByteArraySerializer");
+        producerProp.setProperty(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
+                "org.apache.common.serialization.kafka.ByteArraySerializer");
+        producerProp.setProperty(ProducerConfig.TRANSACTION_TIMEOUT_CONFIG, transactionTimeout);
 
-        return new FlinkKafkaProducer<String>(
-                "default_topic",
-                new KafkaSerializationSchema<String>() {
-                    @Override
-                    public ProducerRecord<byte[], byte[]> serialize(String element, @Nullable Long timestamp) {
-                        JSONObject jsonObj = JSON.parseObject(element);
-                        String topic = jsonObj.getString("topic");
-                        return new ProducerRecord<byte[], byte[]>(topic, element.getBytes());
-                    }
-                },
-                producerConfig,
-                FlinkKafkaProducer.Semantic.EXACTLY_ONCE
-        );
+        return new FlinkKafkaProducer<T>(DEFAULT_TOPIC, kafkaSerializationSchema, producerProp, EXACTLY_ONCE);
+    }
+
+    public static String getUpsertKafkaDDL(String[] args) {
+
+        return null;
     }
 }
