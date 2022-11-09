@@ -1,10 +1,9 @@
 package com.atguigu.tms.realtime.bean;
 
-import lombok.AllArgsConstructor;
 import lombok.Data;
 
 @Data
-public class TmsConfigDim {
+public class TmsConfigDimBean {
     // 数据源表表名
     String sourceTable;
 

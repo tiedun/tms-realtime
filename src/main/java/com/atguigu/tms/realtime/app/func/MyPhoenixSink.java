@@ -14,13 +14,11 @@ public class MyPhoenixSink implements SinkFunction<JSONObject> {
     public void invoke(JSONObject jsonObj, Context context) throws Exception {
         // 获取目标表表名
         String sinkTable = jsonObj.getString("sinkTable");
-        // 获取 id 字段的值
-        String id = jsonObj.getString("id");
 
-        // 清除 JSON 对象中的 sinkTable 字段和 type 字段
+        // 清除 JSON 对象中的 sinkTable 字段和 op 字段
         // 以便可将该对象直接用于 HBase 表的数据写入
         jsonObj.remove("sinkTable");
-        jsonObj.remove("type");
+//        jsonObj.remove("op");
 
         // 获取字段名
         Set<String> columns = jsonObj.keySet();

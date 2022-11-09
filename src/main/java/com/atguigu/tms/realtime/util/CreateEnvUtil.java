@@ -6,6 +6,7 @@ import com.ververica.cdc.connectors.mysql.source.MySqlSourceBuilder;
 import com.ververica.cdc.connectors.mysql.table.StartupOptions;
 import com.ververica.cdc.debezium.JsonDebeziumDeserializationSchema;
 import org.apache.flink.api.java.utils.ParameterTool;
+import org.apache.flink.configuration.Configuration;
 import org.apache.flink.contrib.streaming.state.EmbeddedRocksDBStateBackend;
 import org.apache.flink.runtime.state.AbstractStateBackend;
 import org.apache.flink.runtime.state.hashmap.HashMapStateBackend;
@@ -23,7 +24,9 @@ public class CreateEnvUtil {
      */
     public static StreamExecutionEnvironment getStreamEnv(String[] args) {
         // TODO 1. 初始化流处理环境
-        StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        StreamExecutionEnvironment env = StreamExecutionEnvironment
+//                .createLocalEnvironmentWithWebUI(new Configuration());
+                .getExecutionEnvironment();
 
         // TODO 2. 获取命令行参数
         ParameterTool parameterTool = ParameterTool.fromArgs(args);
@@ -138,7 +141,8 @@ public class CreateEnvUtil {
                         "tms.truck_model",
                         "tms.truck_team",
                         "tms.user_address",
-                        "tms.user_info"};
+                        "tms.user_info",
+                        "tms.base_dic"};
                 return builder
                         .databaseList("tms")
                         .tableList(dimTables)
@@ -146,9 +150,19 @@ public class CreateEnvUtil {
                         .serverId(serverId)
                         .build();
             case "dwd":
+                String[] dwdTables = new String[] {"tms.base_complex",
+                        "tms.express_task_collect",
+                        "tms.express_task_delivery",
+                        "tms.order_cargo",
+                        "tms.order_info",
+                        "tms.order_org_bound",
+                        "tms.order_trace_log",
+                        "tms.transport_task",
+                        "tms.transport_task_detail",
+                        "tms.transport_task_process"};
                 return builder
                         .databaseList("tms")
-                        .tableList(".*")
+                        .tableList(dwdTables)
                         .startupOptions(StartupOptions.latest())
                         .serverId(serverId)
                         .build();

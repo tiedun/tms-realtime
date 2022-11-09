@@ -2,7 +2,10 @@ package com.atguigu.tms.realtime.app.func;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
-import com.atguigu.tms.realtime.bean.TmsConfigDim;
+import com.atguigu.tms.realtime.bean.TmsConfigDimBean;
+import com.atguigu.tms.realtime.common.TmsConfig;
+import com.atguigu.tms.realtime.util.PhoenixUtil;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.flink.api.common.state.BroadcastState;
 import org.apache.flink.api.common.state.MapStateDescriptor;
 import org.apache.flink.api.common.state.ReadOnlyBroadcastState;
@@ -13,24 +16,21 @@ import org.apache.flink.util.Collector;
 
 import java.sql.*;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * description:
- * Created by 铁盾 on 2022/10/24
- */
-public class MyBroadcastFunction extends BroadcastProcessFunction<String, String, JSONObject> {
+public class MyBroadcastFunction extends BroadcastProcessFunction<JSONObject, String, JSONObject> {
 
-    private MapStateDescriptor<String, TmsConfigDim> mapStateDescriptor;
-    private String username;
+    private MapStateDescriptor<String, TmsConfigDimBean> mapStateDescriptor;
+    private String user;
     private String password;
-    private Map<String, TmsConfigDim> configMap = new HashMap<String, TmsConfigDim>();
+    private Map<String, TmsConfigDimBean> configMap = new HashMap<String, TmsConfigDimBean>();
 
     public MyBroadcastFunction(String[] args, MapStateDescriptor mapStateDescriptor) {
         ParameterTool parameterTool = ParameterTool.fromArgs(args);
-        this.username = parameterTool.get("mysql-username", "root");
-        this.password  = parameterTool.get("mysql-passwd", "000000");
+        this.user = parameterTool.get("mysql-username", "root");
+        this.password = parameterTool.get("mysql-passwd", "000000");
         this.mapStateDescriptor = mapStateDescriptor;
     }
 
@@ -44,7 +44,7 @@ public class MyBroadcastFunction extends BroadcastProcessFunction<String, String
         Class.forName("com.mysql.jdbc.Driver");
         // 2. 获取连接对象
         String url = "jdbc:mysql://hadoop102:3306/tms_config?useSSL=false&useUnicode=true" +
-                "&user=" + username + "&password=" + password +
+                "&user=" + user + "&password=" + password +
                 "&charset=utf8&TimeZone=Asia/Shanghai";
         Connection conn = DriverManager.getConnection(url);
         // 3. 获取数据库编译对象
@@ -58,16 +58,16 @@ public class MyBroadcastFunction extends BroadcastProcessFunction<String, String
 
         while (rs.next()) {
             JSONObject jsonObj = new JSONObject();
-            String primaryKey = null;
+            String key = null;
             for (int i = 1; i <= columnCount; i++) {
                 String columnName = metaData.getColumnName(i);
                 String value = rs.getString(i);
                 jsonObj.put(columnName, value);
                 if (columnName.equals("source_table")) {
-                    primaryKey = value;
+                    key = value;
                 }
             }
-            configMap.put(primaryKey, jsonObj.toJavaObject(TmsConfigDim.class));
+            configMap.put(key, jsonObj.toJavaObject(TmsConfigDimBean.class));
         }
 
         // 6. 释放资源
@@ -76,33 +76,51 @@ public class MyBroadcastFunction extends BroadcastProcessFunction<String, String
     }
 
     @Override
-    public void processElement(String jsonStr, ReadOnlyContext context, Collector<JSONObject> out) throws Exception {
-        JSONObject jsonObj = JSON.parseObject(jsonStr);
+    public void processElement(JSONObject jsonObj, ReadOnlyContext context, Collector<JSONObject> out) throws Exception {
         String table = jsonObj.getString("table");
-        ReadOnlyBroadcastState<String, TmsConfigDim> broadcastState =
+        ReadOnlyBroadcastState<String, TmsConfigDimBean> broadcastState =
                 context.getBroadcastState(mapStateDescriptor);
-        TmsConfigDim tmsConfig = broadcastState.get(table);
+        TmsConfigDimBean tmsConfig = broadcastState.get(table);
         if (tmsConfig == null) {
             tmsConfig = configMap.get(table);
         }
 
         if (tmsConfig != null) {
-            JSONObject data = jsonObj.getJSONObject("data");
+            JSONObject data = jsonObj.getJSONObject("after");
 
-            // 获取需要的字段名称
+            // 对用户表数据进行脱敏
+            if (table.equals("user_info")) {
+                String passwd = data.getString("passwd");
+                String realName = data.getString("real_name");
+                String phoneNum = data.getString("phone_num");
+                String email = data.getString("email");
+
+                // 脱敏
+                passwd = DigestUtils.md5Hex(passwd);
+                realName = DigestUtils.md5Hex(realName);
+                phoneNum = DigestUtils.md5Hex(phoneNum);
+                email = DigestUtils.md5Hex(email);
+
+                data.put("passwd", passwd);
+                data.put("real_name", realName);
+                data.put("phone_num", phoneNum);
+                data.put("email", email);
+            }
+
+            // 获取需要的字段列表
             String sinkColumns = tmsConfig.getSinkColumns();
             // 获取目标表名
             String sinkTable = tmsConfig.getSinkTable();
             // 获取主流数据操作类型
-            String type = jsonObj.getString("type");
+//            String op = jsonObj.getString("op");
 
-            // 筛选需要的字段
+            // 过滤掉不需要的字段
             filterColumns(data, sinkColumns);
 
-            // 将目标表名补充到 data 对象中
+            // 将目标表名补充到 after 对象中
             data.put("sinkTable", sinkTable);
-            // 将操作类型补充到 data 对象中
-            data.put("type", type);
+            // 将操作类型补充到 after 对象中
+//            data.put("op", op);
 
             // 将主流数据发送到下游
             out.collect(data);
@@ -111,26 +129,78 @@ public class MyBroadcastFunction extends BroadcastProcessFunction<String, String
 
     private void filterColumns(JSONObject data, String sinkColumns) {
         Set<Map.Entry<String, Object>> entries = data.entrySet();
-        entries.removeIf(r -> sinkColumns.contains(r.getKey()));
+        // 删除下游不需要的字段
+        entries.removeIf(r -> !sinkColumns.contains(r.getKey()));
     }
 
     @Override
     public void processBroadcastElement(String jsonStr, Context context, Collector<JSONObject> out) throws Exception {
         JSONObject jsonObj = JSON.parseObject(jsonStr);
         String op = jsonObj.getString("op");
-        BroadcastState<String, TmsConfigDim> broadcastState = context.getBroadcastState(mapStateDescriptor);
+        BroadcastState<String, TmsConfigDimBean> broadcastState = context.getBroadcastState(mapStateDescriptor);
 
-        if("d".equals(op)) {
+        if ("d".equals(op)) {
             String sourceTable = jsonObj.getJSONObject("before").getString("source_table");
             broadcastState.remove(sourceTable);
             configMap.remove(sourceTable);
         } else {
-            TmsConfigDim after = jsonObj.getObject("after", TmsConfigDim.class);
-            String sourceTable = after.getSourceTable();
+            TmsConfigDimBean config = jsonObj.getObject("after", TmsConfigDimBean.class);
+            String sourceTable = config.getSourceTable();
             // 更新广播状态
-            broadcastState.put(sourceTable, after);
+            broadcastState.put(sourceTable, config);
             // 更新预加载对象
-            configMap.put(sourceTable, after);
+            configMap.put(sourceTable, config);
+
+            // 快照或插入数据时创建 Phoenix 维度表
+            if ("c".equals(op) || "r".equals(op)) {
+                String sinkTable = config.getSinkTable();
+                String sinkColumns = config.getSinkColumns();
+                String sinkPk = config.getPrimaryKey();
+                String sinkExtend = config.getSinkExtend();
+                checkTable(sinkTable, sinkColumns, sinkPk, sinkExtend);
+            }
         }
     }
+
+    /**
+     * Phoenix 建表函数
+     *
+     * @param sinkTable   目标表名  eg. test
+     * @param sinkColumns 目标表字段  eg. id,name,sex
+     * @param sinkPk      目标表主键  eg. id
+     * @param sinkExtend  目标表建表扩展字段  eg. ""
+     *                    eg. create table if not exists mydb.test(id varchar primary key, name varchar, sex varchar)...
+     */
+    private void checkTable(String sinkTable, String sinkColumns, String sinkPk, String sinkExtend) {
+        // 封装建表 SQL
+        StringBuilder sql = new StringBuilder();
+        sql.append("create table if not exists " + TmsConfig.HBASE_SCHEMA
+                + "." + sinkTable + "(\n");
+        String[] columnArr = sinkColumns.split(",");
+        // 为主键及扩展字段赋默认值
+        if (sinkPk == null) {
+            sinkPk = "id";
+        }
+        if (sinkExtend == null) {
+            sinkExtend = "";
+        }
+        // 遍历添加字段信息
+        for (int i = 0; i < columnArr.length; i++) {
+            sql.append(columnArr[i] + " varchar");
+            // 判断当前字段是否为主键
+            if (sinkPk.equals(columnArr[i])) {
+                sql.append(" primary key");
+            }
+            // 如果当前字段不是最后一个字段，则追加","
+            if (i < columnArr.length - 1) {
+                sql.append(",\n");
+            }
+        }
+        sql.append(")");
+        sql.append(sinkExtend);
+        String createStatement = sql.toString();
+
+        PhoenixUtil.executeSQL(createStatement);
+    }
+
 }

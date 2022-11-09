@@ -3,8 +3,7 @@ package com.atguigu.tms.realtime.util;
 import com.alibaba.druid.pool.DruidDataSource;
 import com.atguigu.tms.realtime.common.TmsConfig;
 
-import java.sql.Connection;
-import java.sql.SQLException;
+import java.sql.*;
 
 public class DruidDSUtil {
 
@@ -24,7 +23,7 @@ public class DruidDSUtil {
         // 设置空闲时的最小连接数，必须介于 0 和最大连接数之间，默认为 0
         phoenixDataSource.setMinIdle(1);
         // 设置没有空余连接时的等待时间，超时抛出异常，-1 表示一直等待
-        phoenixDataSource.setMaxWait(-1);
+        phoenixDataSource.setMaxWait(60 * 1000L);
         // 验证连接是否可用使用的 SQL 语句
         phoenixDataSource.setValidationQuery("select 1");
         // 指明连接是否被空闲连接回收器（如果有）进行检验，如果检测失败，则连接将被从池中去除
@@ -42,6 +41,6 @@ public class DruidDSUtil {
     }
 
     public static Connection getPhoenixConn() throws SQLException {
-        return phoenixDataSource.getConnection().getConnection();
+        return phoenixDataSource.getConnection();
     }
 }

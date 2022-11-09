@@ -1,3 +1,4 @@
+import com.atguigu.tms.realtime.util.CreateEnvUtil;
 import com.ververica.cdc.connectors.mysql.source.MySqlSource;
 import com.ververica.cdc.connectors.mysql.table.StartupOptions;
 import com.ververica.cdc.debezium.JsonDebeziumDeserializationSchema;
@@ -12,8 +13,9 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
  */
 public class FlinkCdcTest {
     public static void main(String[] args) throws Exception {
-        StreamExecutionEnvironment env
-                = StreamExecutionEnvironment.createLocalEnvironmentWithWebUI(new Configuration());
+        StreamExecutionEnvironment env = CreateEnvUtil.getStreamEnv(args);
+        env.disableOperatorChaining();
+
         MySqlSource<String> mysqlSource = MySqlSource.<String>builder()
                 .hostname("hadoop102")
                 .port(3306)
@@ -26,12 +28,12 @@ public class FlinkCdcTest {
                 .build();
 
         DataStreamSource<String> configSource =
-                env.fromSource(mysqlSource, WatermarkStrategy.noWatermarks(), "mysql-source");
+                env.fromSource(mysqlSource, WatermarkStrategy.noWatermarks(), "mysql-source")
+                        .setParallelism(4);
 
         configSource
-                .setParallelism(1)
                 .print()
-                .setParallelism(1);
+                .setParallelism(4);
 
         env.execute();
     }
