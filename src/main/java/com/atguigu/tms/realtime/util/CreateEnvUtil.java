@@ -13,6 +13,10 @@ import org.apache.flink.runtime.state.hashmap.HashMapStateBackend;
 import org.apache.flink.streaming.api.environment.CheckpointConfig;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
+import org.apache.kafka.connect.json.DecimalFormat;
+import org.apache.kafka.connect.json.JsonConverterConfig;
+
+import java.util.HashMap;
 
 public class CreateEnvUtil {
 
@@ -107,12 +111,18 @@ public class CreateEnvUtil {
         serverId = parameterTool.get("server-id", serverId);
         option = parameterTool.get("start-up-options", option);
 
+        // 将 Decimal 类型数据的解析格式由 BASE64 更改为 NUMERIC
+        HashMap config = new HashMap<>();
+        config.put(JsonConverterConfig.DECIMAL_FORMAT_CONFIG, DecimalFormat.NUMERIC.name());
+        JsonDebeziumDeserializationSchema jsonDebeziumDeserializationSchema =
+                new JsonDebeziumDeserializationSchema(false, config);
+
         MySqlSourceBuilder<String> builder = MySqlSource.<String>builder()
                 .hostname(mysqlHostname)
                 .port(mysqlPort)
                 .username(mysqlUsername)
                 .password(mysqlPasswd)
-                .deserializer(new JsonDebeziumDeserializationSchema());
+                .deserializer(jsonDebeziumDeserializationSchema);
         switch (option) {
             case "config_dim":
                 return builder
