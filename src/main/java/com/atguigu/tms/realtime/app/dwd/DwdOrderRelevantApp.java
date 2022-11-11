@@ -2,19 +2,17 @@ package com.atguigu.tms.realtime.app.dwd;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
-import com.atguigu.tms.realtime.bean.DwdOrderDetailOriginBean;
-import com.atguigu.tms.realtime.bean.DwdOrderInfoOriginBean;
-import com.atguigu.tms.realtime.bean.DwdTradeOrderDetailBean;
+import com.atguigu.tms.realtime.bean.*;
 import com.atguigu.tms.realtime.util.CreateEnvUtil;
 import com.atguigu.tms.realtime.util.KafkaUtil;
+import com.esotericsoftware.minlog.Log;
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.state.*;
 import org.apache.flink.api.common.time.Time;
-import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.configuration.Configuration;
-import org.apache.flink.streaming.api.datastream.ConnectedStreams;
+import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.DataStreamSource;
 import org.apache.flink.streaming.api.datastream.KeyedStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
@@ -24,12 +22,14 @@ import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
-import org.mortbay.log.Log;
 
 public class DwdOrderRelevantApp {
     public static void main(String[] args) throws Exception {
         // TODO 1. 环境准备
         StreamExecutionEnvironment env = CreateEnvUtil.getStreamEnv(args);
+
+        // 并行度设置，部署时应注释，通过 args 指定全局并行度
+        env.setParallelism(4);
 
         // TODO 2. 读取事实数据
         String topic = "tms_ods";
@@ -59,15 +59,12 @@ public class DwdOrderRelevantApp {
 
                         String table = jsonObj.getJSONObject("source").getString("table");
                         jsonObj.put("table", table);
-                        jsonObj.remove("before");
                         jsonObj.remove("source");
                         jsonObj.remove("transaction");
                         return jsonObj;
                     }
                 }
         );
-
-        orderInfoMappedStream.print("orderInfoMappedStream >>>");
 
         // TODO 5. 按照 order_id 分组
         KeyedStream<JSONObject, String> keyedStream = orderInfoMappedStream.keyBy(
@@ -87,7 +84,24 @@ public class DwdOrderRelevantApp {
 //        OutputTag<String> lateDetailOriginTag =
 //                new OutputTag<String>("late_origin_detail") {
 //                };
-
+        // 支付成功明细流标签
+        OutputTag<String> paySucTag = new OutputTag<String>("dwd_trade_pay_suc_detail") {
+        };
+        // 取消运单明细流标签
+        OutputTag<String> cancelDetailTag = new OutputTag<String>("dwd_trade_cancel_detail") {
+        };
+        // 揽收明细流标签
+        OutputTag<String> receiveDetailTag = new OutputTag<String>("dwd_trans_receive_detail") {
+        };
+        // 发单明细流标签
+        OutputTag<String> dispatchDetailTag = new OutputTag<String>("dwd_trans_dispatch_detail") {
+        };
+        // 派送成功明细流标签
+        OutputTag<String> deliverDetailTag = new OutputTag<String>("dwd_trans_deliver_detail") {
+        };
+        // 签收明细流标签
+        OutputTag<String> signDetailTag = new OutputTag<String>("dwd_trans_sign_detail") {
+        };
 
         // TODO 7. 处理数据
         SingleOutputStreamOperator<String> processedStream = keyedStream.process(
@@ -124,38 +138,161 @@ public class DwdOrderRelevantApp {
                                     Iterable<DwdOrderDetailOriginBean> dwdOrderDetailOriginBeans = detailBeansState.get();
                                     for (DwdOrderDetailOriginBean detailOriginBean : dwdOrderDetailOriginBeans) {
                                         DwdTradeOrderDetailBean dwdTradeOrderDetailBean = new DwdTradeOrderDetailBean();
-                                        System.out.println("detailOriginBean = " + detailOriginBean);
                                         dwdTradeOrderDetailBean.mergeBean(detailOriginBean, infoOriginBean);
                                         out.collect(JSON.toJSONString(dwdTradeOrderDetailBean));
+                                    }
+                                } else if (op.equals("u")) {
+                                    JSONObject oldData = jsonObj.getJSONObject("before");
+                                    String oldStatus = oldData.getString("status");
+                                    String status = infoOriginBean.getStatus();
+                                    Iterable<DwdOrderDetailOriginBean> dwdOrderDetailOriginBeans = detailBeansState.get();
+                                    if (!oldStatus.equals(status)) {
+                                        String changeLog = oldStatus + " -> " + status;
+                                        switch (changeLog) {
+                                            case "60010 -> 60020":
+                                                // 处理支付成功数据
+                                                for (DwdOrderDetailOriginBean dwdOrderDetailOriginBean : dwdOrderDetailOriginBeans) {
+                                                    DwdTradePaySucDetailBean dwdTradePaySucDetailBean = new DwdTradePaySucDetailBean();
+                                                    Log.error("jsonObj -> " + jsonObj);
+                                                    Log.error("op -> " + op);
+                                                    dwdTradePaySucDetailBean.mergeBean(dwdOrderDetailOriginBean, infoOriginBean);
+                                                    context.output(paySucTag, JSON.toJSONString(dwdTradePaySucDetailBean));
+                                                }
+                                                break;
+                                            case "60020 -> 60030":
+                                                // 处理揽收明细数据
+                                                for (DwdOrderDetailOriginBean dwdOrderDetailOriginBean : dwdOrderDetailOriginBeans) {
+                                                    DwdTransReceiveDetailBean dwdTransReceiveDetailBean = new DwdTransReceiveDetailBean();
+                                                    dwdTransReceiveDetailBean.mergeBean(dwdOrderDetailOriginBean, infoOriginBean);
+                                                    context.output(receiveDetailTag, JSON.toJSONString(dwdTransReceiveDetailBean));
+                                                }
+                                                break;
+                                            case "60040 -> 60050":
+                                                // 处理发单明细数据
+                                                for (DwdOrderDetailOriginBean dwdOrderDetailOriginBean : dwdOrderDetailOriginBeans) {
+                                                    DwdTransDispatchDetailBean dispatchDetailBean = new DwdTransDispatchDetailBean();
+                                                    dispatchDetailBean.mergeBean(dwdOrderDetailOriginBean, infoOriginBean);
+                                                    context.output(dispatchDetailTag, JSON.toJSONString(dispatchDetailBean));
+                                                }
+                                                break;
+                                            case "60060 -> 60070":
+                                                // 处理派送成功数据
+                                                for (DwdOrderDetailOriginBean dwdOrderDetailOriginBean : dwdOrderDetailOriginBeans) {
+                                                    DwdTransDeliverDetailBean dwdTransDeliverDetailBean = new DwdTransDeliverDetailBean();
+                                                    dwdTransDeliverDetailBean.mergeBean(dwdOrderDetailOriginBean, infoOriginBean);
+                                                    context.output(deliverDetailTag, JSON.toJSONString(dwdTransDeliverDetailBean));
+                                                }
+                                                break;
+                                            case "60070 -> 60080":
+                                                // 处理签收明细数据
+                                                for (DwdOrderDetailOriginBean dwdOrderDetailOriginBean : dwdOrderDetailOriginBeans) {
+                                                    DwdTransSignDetailBean dwdTransSignDetailBean = new DwdTransSignDetailBean();
+                                                    dwdTransSignDetailBean.mergeBean(dwdOrderDetailOriginBean, infoOriginBean);
+                                                    context.output(signDetailTag, JSON.toJSONString(dwdTransSignDetailBean));
+                                                }
+                                                // 取消后订单数据不会再发生变化，状态可以清除
+                                                detailBeansState.clear();
+                                                break;
+                                            default:
+                                                if (status.equals("60999")) {
+                                                    for (DwdOrderDetailOriginBean dwdOrderDetailOriginBean : dwdOrderDetailOriginBeans) {
+                                                        DwdTradeCancelDetailBean dwdTradeCancelDetailBean = new DwdTradeCancelDetailBean();
+                                                        dwdTradeCancelDetailBean.mergeBean(dwdOrderDetailOriginBean, infoOriginBean);
+                                                        context.output(cancelDetailTag, JSON.toJSONString(dwdTradeCancelDetailBean));
+                                                    }
+                                                }
+                                                // 取消后订单数据不会再发生变化，状态可以清除
+                                                detailBeansState.clear();
+                                                break;
+                                        }
                                     }
                                 }
                                 break;
                             case "order_cargo":
                                 DwdOrderDetailOriginBean detailOriginBean = data.toJavaObject(DwdOrderDetailOriginBean.class);
-                                switch (op) {
-                                    case "c":
-                                        detailBeansState.add(detailOriginBean);
-                                        DwdOrderInfoOriginBean infoOriginBeanInState = infoBeanState.value();
-                                        if (infoOriginBeanInState != null) {
-                                            DwdTradeOrderDetailBean dwdTradeOrderDetailBean = new DwdTradeOrderDetailBean();
-                                            dwdTradeOrderDetailBean.mergeBean(detailOriginBean, infoOriginBeanInState);
-                                            out.collect(JSON.toJSONString(dwdTradeOrderDetailBean));
-                                        }
+                                if (op.equals("c")) {
+                                    detailBeansState.add(detailOriginBean);
+                                    DwdOrderInfoOriginBean infoOriginBeanInState = infoBeanState.value();
+                                    if (infoOriginBeanInState != null) {
+                                        DwdTradePaySucDetailBean dwdTradeOrderDetailBean = new DwdTradePaySucDetailBean();
+                                        dwdTradeOrderDetailBean.mergeBean(detailOriginBean, infoOriginBeanInState);
+                                        out.collect(JSON.toJSONString(dwdTradeOrderDetailBean));
+                                    }
                                 }
                                 break;
+
                         }
                     }
                 }
         );
 
-
         // TODO 8. 提取侧输出流
+        // 8.1 支付成功明细流
+        DataStream<String> paySucStream = processedStream.getSideOutput(paySucTag);
+        // 8.2 取消运单明细流
+        DataStream<String> cancelDetailStream = processedStream.getSideOutput(cancelDetailTag);
+        // 8.3 揽收明细流
+        DataStream<String> receiveDetailStream = processedStream.getSideOutput(receiveDetailTag);
+        // 8.4 发单明细流
+        DataStream<String> dispatchDetailStream = processedStream.getSideOutput(dispatchDetailTag);
+        // 8.5 派送成功明细流
+        DataStream<String> deliverDetailStream = processedStream.getSideOutput(deliverDetailTag);
+        // 8.6 签收明细流
+        DataStream<String> signDetailStream = processedStream.getSideOutput(signDetailTag);
+        paySucStream.print("paySucStream >>> ");
+        cancelDetailStream.print("cancelDetailStream >>> ");
+        receiveDetailStream.print("receiveDetailStream >>> ");
+        dispatchDetailStream.print("dispatchDetailStream >>> ");
+        deliverDetailStream.print("deliverDetailStream >>> ");
+        signDetailStream.print("signDetailStream >>> ");
 
         // TODO 9. 发送到 Kafka 指定主题
+        // 9.1 定义主题名称
+        // 9.1.1 运单明细主题
         String detailTopic = "tms_dwd_trade_order_detail";
-        FlinkKafkaProducer<String> kafkaProducer = KafkaUtil.getKafkaProducer(detailTopic, args);
-        processedStream.addSink(kafkaProducer);
+        // 9.1.2 支付成功明细主题
+        String paySucDetailTopic = "tms_dwd_trade_pay_suc_detail";
+        // 9.1.3 取消运单明细主题
+        String cancelDetailTopic = "tms_dwd_trade_cancel_detail";
+        // 9.1.4 揽收明细主题
+        String receiveDetailTopic = "tms_dwd_trans_receive_detail";
+        // 9.1.5 发单明细主题
+        String dispatchDetailTopic = "tms_dwd_trans_dispatch_detail";
+        // 9.1.6 派送成功明细主题
+        String deliverDetailTopic = "tms_dwd_trans_deliver_detail";
+        // 9.1.7 签收明细主题
+        String signDetailTopic = "tms_dwd_trans_sign_detail";
 
+        // 9.2 发送数据到 Kafka
+        // 9.2.1 运单明细数据
+//        FlinkKafkaProducer<String> kafkaProducer = KafkaUtil.getKafkaProducer(detailTopic, args);
+//        processedStream.addSink(kafkaProducer);
+
+        // 9.2.2 支付成功明细数据
+        FlinkKafkaProducer<String> paySucKafkaProducer = KafkaUtil.getKafkaProducer(paySucDetailTopic, args);
+        paySucStream.addSink(paySucKafkaProducer);
+/*
+        // 9.2.3 取消运单明细数据
+        FlinkKafkaProducer<String> cancelKafkaProducer = KafkaUtil.getKafkaProducer(cancelDetailTopic, args);
+        cancelDetailStream.addSink(cancelKafkaProducer);
+
+        // 9.2.4 揽收明细数据
+        FlinkKafkaProducer<String> receiveKafkaProducer = KafkaUtil.getKafkaProducer(receiveDetailTopic, args);
+        receiveDetailStream.addSink(receiveKafkaProducer);
+
+        // 9.2.5 发单明细数据
+        FlinkKafkaProducer<String> dispatchKafkaProducer = KafkaUtil.getKafkaProducer(dispatchDetailTopic, args);
+        dispatchDetailStream.addSink(dispatchKafkaProducer);
+
+        // 9.2.6 派送成功明细数据
+        FlinkKafkaProducer<String> deliverKafkaProducer = KafkaUtil.getKafkaProducer(deliverDetailTopic, args);
+        deliverDetailStream.addSink(deliverKafkaProducer);
+
+        // 9.2.7 签收明细数据
+        FlinkKafkaProducer<String> signKafkaProducer = KafkaUtil.getKafkaProducer(signDetailTopic, args);
+        signDetailStream.addSink(signKafkaProducer);
+*/
         env.execute();
     }
 }
+

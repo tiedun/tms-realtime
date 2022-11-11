@@ -103,10 +103,6 @@ public class KafkaUtil {
         String transactionTimeout = parameterTool.get(
                 "transaction-timeout", 15 * 60 * 1000 + "");
         producerProp.setProperty(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        producerProp.setProperty(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
-                "org.apache.kafka.common.serialization.ByteArraySerializer");
-        producerProp.setProperty(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
-                "org.apache.kafka.common.serialization.ByteArraySerializer");
         producerProp.setProperty(ProducerConfig.TRANSACTION_TIMEOUT_CONFIG, transactionTimeout);
 
         // 内部类中使用但未声明的局部变量必须在内部类代码段之前明确分配

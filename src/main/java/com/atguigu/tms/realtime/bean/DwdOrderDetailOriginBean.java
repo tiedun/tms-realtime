@@ -25,7 +25,7 @@ public class DwdOrderDetailOriginBean {
     Integer volumnHeight;
 
     // 重量 kg
-    String weight;
+    BigDecimal weight;
 
     // 创建时间
     String createTime;

@@ -20,7 +20,11 @@ public class OdsApp {
         // TODO 1. 初始化流处理环境
         StreamExecutionEnvironment env = CreateEnvUtil.getStreamEnv(args);
 
-        env.disableOperatorChaining();
+        // 并行度设置，部署时应注释，通过 args 指定全局并行度
+        env.setParallelism(4);
+
+        // 禁用算子链优化，便于调试，定位问题，部署前应注释
+        // env.disableOperatorChaining();
 
         // TODO 2. 处理维度数据
         String dimOption = "dim";

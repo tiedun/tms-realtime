@@ -33,7 +33,7 @@ public class CreateEnvUtil {
                 .getExecutionEnvironment();
 
         // TODO 2. 获取命令行参数
-        ParameterTool parameterTool = ParameterTool.fromArgs(args);
+        /*ParameterTool parameterTool = ParameterTool.fromArgs(args);
         // 2.1 获取检查点触发间隔
         long checkpointInterval = Long.parseLong(
                 parameterTool.get("checkpoint-interval", 60 * 1000 + ""));
@@ -87,7 +87,7 @@ public class CreateEnvUtil {
         env.getCheckpointConfig().setCheckpointStorage(checkpointUrl);
         // 3.6 设置 HDFS 用户名
         System.setProperty("HADOOP_USER_NAME", hdfsUserName);
-
+*/
         return env;
     }
 

@@ -58,13 +58,13 @@ public class DwdOrderInfoOriginBean {
     Integer cargoNum;
 
     // 金额
-    String amount;
+    BigDecimal amount;
 
     // 预计到达时间
-    String estimateArriveTime;
+    Long estimateArriveTime;
 
     // 距离，单位：公里
-    String distance;
+    BigDecimal distance;
 
     // 创建时间
     String createTime;

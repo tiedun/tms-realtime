@@ -1,12 +1,13 @@
 package com.atguigu.tms.realtime.bean;
 
 import com.atguigu.tms.realtime.util.DateFormatUtil;
+import com.esotericsoftware.minlog.Log;
 import lombok.Data;
 
 import java.math.BigDecimal;
 
 @Data
-public class DwdTradeOrderDetailBean {
+public class DwdTransReceiveDetailBean {
     // 运单明细ID
     String id;
 
@@ -28,8 +29,8 @@ public class DwdTradeOrderDetailBean {
     // 重量 kg
     BigDecimal weight;
 
-    // 下单时间
-    String orderTime;
+    // 揽收时间
+    String receiveTime;
 
     // 运单号
     String orderNo;
@@ -100,15 +101,6 @@ public class DwdTradeOrderDetailBean {
         this.volumeWidth = detailOriginBean.volumnWidth;
         this.volumeHeight = detailOriginBean.volumnHeight;
         this.weight = detailOriginBean.weight;
-        this.orderTime =
-                DateFormatUtil.toYmdHms(DateFormatUtil.toTs(
-                        detailOriginBean.createTime.replaceAll("T", " ")
-                                .replaceAll("Z", ""), true)
-                        + 8 * 60 * 60 * 1000);
-        this.ts = DateFormatUtil.toTs(
-                detailOriginBean.createTime.replaceAll("T", " ")
-                        .replaceAll("Z", ""), true)
-                + 8 * 60 * 60 * 1000;
 
         // 合并原始订单字段
         this.orderNo = infoOriginBean.orderNo;
@@ -131,5 +123,15 @@ public class DwdTradeOrderDetailBean {
         this.estimateArriveTime = DateFormatUtil.toYmdHms(
                 infoOriginBean.estimateArriveTime - 8 * 60 * 60 * 1000);
         this.distance = infoOriginBean.distance;
+        Log.error(detailOriginBean.updateTime);
+        this.receiveTime =
+                DateFormatUtil.toYmdHms(DateFormatUtil.toTs(
+                        infoOriginBean.updateTime.replaceAll("T", " ")
+                                .replaceAll("Z", ""), true)
+                        + 8 * 60 * 60 * 1000);
+        this.ts = DateFormatUtil.toTs(
+                infoOriginBean.updateTime.replaceAll("T", " ")
+                        .replaceAll("Z", ""), true)
+                + 8 * 60 * 60 * 1000;
     }
 }
