@@ -123,7 +123,6 @@ public class DwdTransReceiveDetailBean {
         this.estimateArriveTime = DateFormatUtil.toYmdHms(
                 infoOriginBean.estimateArriveTime - 8 * 60 * 60 * 1000);
         this.distance = infoOriginBean.distance;
-        Log.error(detailOriginBean.updateTime);
         this.receiveTime =
                 DateFormatUtil.toYmdHms(DateFormatUtil.toTs(
                         infoOriginBean.updateTime.replaceAll("T", " ")

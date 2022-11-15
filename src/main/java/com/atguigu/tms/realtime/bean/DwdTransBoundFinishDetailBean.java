@@ -1,9 +1,9 @@
 package com.atguigu.tms.realtime.bean;
 
-        import com.atguigu.tms.realtime.util.DateFormatUtil;
-        import lombok.Data;
+import com.atguigu.tms.realtime.util.DateFormatUtil;
+import lombok.Data;
 
-        import java.math.BigDecimal;
+import java.math.BigDecimal;
 
 @Data
 public class DwdTransBoundFinishDetailBean {

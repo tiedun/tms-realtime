@@ -6,7 +6,7 @@ import lombok.Data;
 import java.math.BigDecimal;
 
 @Data
-public class DwdTransDeliverDetailBean {
+public class DwdTransDeliverSucDetailBean {
     // 运单明细ID
     String id;
 

@@ -32,6 +32,8 @@ public class CreateEnvUtil {
 //                .createLocalEnvironmentWithWebUI(new Configuration());
                 .getExecutionEnvironment();
 
+//        env.setStateBackend(new EmbeddedRocksDBStateBackend());
+
         // TODO 2. 获取命令行参数
         /*ParameterTool parameterTool = ParameterTool.fromArgs(args);
         // 2.1 获取检查点触发间隔

@@ -96,7 +96,7 @@ public class DwdOrderRelevantApp {
         OutputTag<String> boundFinishDetailTag = new OutputTag<String>("dwd_trans_bound_finish_detail") {
         };
         // 派送成功明细流标签
-        OutputTag<String> deliverDetailTag = new OutputTag<String>("dwd_trans_deliver_detail") {
+        OutputTag<String> deliverSucDetailTag = new OutputTag<String>("dwd_trans_deliver_detail") {
         };
         // 签收明细流标签
         OutputTag<String> signDetailTag = new OutputTag<String>("dwd_trans_sign_detail") {
@@ -184,9 +184,9 @@ public class DwdOrderRelevantApp {
                                             case "60060 -> 60070":
                                                 // 处理派送成功数据
                                                 for (DwdOrderDetailOriginBean dwdOrderDetailOriginBean : dwdOrderDetailOriginBeans) {
-                                                    DwdTransDeliverDetailBean dwdTransDeliverDetailBean = new DwdTransDeliverDetailBean();
-                                                    dwdTransDeliverDetailBean.mergeBean(dwdOrderDetailOriginBean, infoOriginBean);
-                                                    context.output(deliverDetailTag, JSON.toJSONString(dwdTransDeliverDetailBean));
+                                                    DwdTransDeliverSucDetailBean dwdTransDeliverSucDetailBean = new DwdTransDeliverSucDetailBean();
+                                                    dwdTransDeliverSucDetailBean.mergeBean(dwdOrderDetailOriginBean, infoOriginBean);
+                                                    context.output(deliverSucDetailTag, JSON.toJSONString(dwdTransDeliverSucDetailBean));
                                                 }
                                                 break;
                                             case "60070 -> 60080":
@@ -245,17 +245,17 @@ public class DwdOrderRelevantApp {
         // 8.4 发单明细流
         DataStream<String> dispatchDetailStream = processedStream.getSideOutput(dispatchDetailTag);
         // 8.5 转运成功明细流
-        DataStream<String> boundFinshDetailStream = processedStream.getSideOutput(boundFinishDetailTag);
+        DataStream<String> boundFinishDetailStream = processedStream.getSideOutput(boundFinishDetailTag);
         // 8.6 派送成功明细流
-        DataStream<String> deliverDetailStream = processedStream.getSideOutput(deliverDetailTag);
+        DataStream<String> deliverSucDetailStream = processedStream.getSideOutput(deliverSucDetailTag);
         // 8.7 签收明细流
         DataStream<String> signDetailStream = processedStream.getSideOutput(signDetailTag);
         paySucStream.print("paySucStream >>> ");
         cancelDetailStream.print("cancelDetailStream >>> ");
         receiveDetailStream.print("receiveDetailStream >>> ");
         dispatchDetailStream.print("dispatchDetailStream >>> ");
-        boundFinshDetailStream.print("boundFinshDetailStream >>> ");
-        deliverDetailStream.print("deliverDetailStream >>> ");
+        boundFinishDetailStream.print("boundFinshDetailStream >>> ");
+        deliverSucDetailStream.print("deliverDetailStream >>> ");
         signDetailStream.print("signDetailStream >>> ");
 
         // TODO 9. 发送到 Kafka 指定主题
@@ -273,7 +273,7 @@ public class DwdOrderRelevantApp {
         // 9.1.6 转运完成明细主题
         String boundFinishDetailTopic = "tms_dwd_trans_bound_finish_detail";
         // 9.1.7 派送成功明细主题
-        String deliverDetailTopic = "tms_dwd_trans_deliver_detail";
+        String deliverSucDetailTopic = "tms_dwd_trans_deliver_detail";
         // 9.1.8 签收明细主题
         String signDetailTopic = "tms_dwd_trans_sign_detail";
 
@@ -300,11 +300,11 @@ public class DwdOrderRelevantApp {
 
         // 9.2.6 转运完成明细主题
         FlinkKafkaProducer<String> boundFinishKafkaProducer = KafkaUtil.getKafkaProducer(boundFinishDetailTopic, args);
-        boundFinshDetailStream.addSink(boundFinishKafkaProducer);
+        boundFinishDetailStream.addSink(boundFinishKafkaProducer);
 
         // 9.2.7 派送成功明细数据
-        FlinkKafkaProducer<String> deliverKafkaProducer = KafkaUtil.getKafkaProducer(deliverDetailTopic, args);
-        deliverDetailStream.addSink(deliverKafkaProducer);
+        FlinkKafkaProducer<String> deliverSucKafkaProducer = KafkaUtil.getKafkaProducer(deliverSucDetailTopic, args);
+        deliverSucDetailStream.addSink(deliverSucKafkaProducer);
 
         // 9.2.8 签收明细数据
         FlinkKafkaProducer<String> signKafkaProducer = KafkaUtil.getKafkaProducer(signDetailTopic, args);

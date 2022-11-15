@@ -123,8 +123,6 @@ public class DwdTradePaySucDetailBean {
         this.estimateArriveTime = DateFormatUtil.toYmdHms(
                 infoOriginBean.estimateArriveTime - 8 * 60 * 60 * 1000);
         this.distance = infoOriginBean.distance;
-        Log.error("infoOriginBean >>> " + infoOriginBean);
-        Log.error("infoOriginBean.updateTime >>> " + infoOriginBean.updateTime);
 
         this.payTime =
                 DateFormatUtil.toYmdHms(DateFormatUtil.toTs(
