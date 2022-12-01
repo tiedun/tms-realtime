@@ -146,6 +146,7 @@ public class CreateEnvUtil {
                         "tms.base_region_info",
                         "tms.employee_info",
                         "tms.express_courier",
+                        "tms.express_courier_complex",
                         "tms.line_base_info",
                         "tms.line_base_shift",
                         "tms.truck_driver",

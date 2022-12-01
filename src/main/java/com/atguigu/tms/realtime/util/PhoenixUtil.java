@@ -129,6 +129,13 @@ public class PhoenixUtil {
                     e.printStackTrace();
                 }
             }
+            if (conn != null) {
+                try {
+                    conn.close();
+                } catch (SQLException e) {
+                    e.printStackTrace();
+                }
+            }
         }
         return resList;
     }

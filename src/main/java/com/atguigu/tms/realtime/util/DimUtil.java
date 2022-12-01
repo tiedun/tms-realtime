@@ -67,7 +67,8 @@ public class DimUtil {
             List<JSONObject> dimList = PhoenixUtil.queryList(selectSql.toString(), JSONObject.class);
 
             if (dimList != null && dimList.size() > 0) {
-                //如果存在维度数据，那么集合中的元素只会有一条
+                // 如果集合中的元素只有一条，取第一条即可
+                // 如果集合中的元素不止一条，则说明获取的多条数据包含的所需信息相同，任取一条即可
                 dimJsonObj = dimList.get(0);
                 //将从phoenix表中查询的数据写到Redis中
                 if (jedis != null) {

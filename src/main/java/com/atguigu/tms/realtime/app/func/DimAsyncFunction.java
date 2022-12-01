@@ -53,6 +53,8 @@ public abstract class DimAsyncFunction<T> extends RichAsyncFunction<T, T> implem
                                     Tuple2<String, String>[] keyValuePair = (Tuple2<String, String>[]) condition;
                                     dimJsonObj = DimUtil.getDimInfo(tableName, keyValuePair);
                                 } else {
+                                    System.out.println("condition = " + condition);
+                                    System.out.println("condition.getClass() = " + condition.getClass());
                                     throw new IllegalArgumentException("筛选条件数据类型不匹配!");
                                 }
 

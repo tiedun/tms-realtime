@@ -23,6 +23,9 @@ import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
 import org.mortbay.log.Log;
 
+import java.util.ArrayList;
+import java.util.Collections;
+
 public class DwdOrderRelevantApp {
     public static void main(String[] args) throws Exception {
         // TODO 1. 环境准备
@@ -196,10 +199,7 @@ public class DwdOrderRelevantApp {
                                                     dwdTransSignDetailBean.mergeBean(dwdOrderDetailOriginBean, infoOriginBean);
                                                     context.output(signDetailTag, JSON.toJSONString(dwdTransSignDetailBean));
                                                 }
-                                                // 取消后订单数据不会再发生变化，状态可以清除
-                                                for (DwdOrderDetailOriginBean dwdOrderDetailOriginBean : detailBeansState.get()) {
-                                                    Log.warn("状态dwdOrderDetailOriginBean = " + dwdOrderDetailOriginBean);
-                                                }
+                                                // 签收后订单数据不会再发生变化，状态可以清除
                                                 detailBeansState.clear();
                                                 break;
                                             default:
@@ -209,9 +209,9 @@ public class DwdOrderRelevantApp {
                                                         dwdTradeCancelDetailBean.mergeBean(dwdOrderDetailOriginBean, infoOriginBean);
                                                         context.output(cancelDetailTag, JSON.toJSONString(dwdTradeCancelDetailBean));
                                                     }
+                                                    // 取消后订单数据不会再发生变化，状态可以清除
+                                                    detailBeansState.clear();
                                                 }
-                                                // 取消后订单数据不会再发生变化，状态可以清除
-                                                detailBeansState.clear();
                                                 break;
                                         }
                                     }
@@ -254,7 +254,7 @@ public class DwdOrderRelevantApp {
         cancelDetailStream.print("cancelDetailStream >>> ");
         receiveDetailStream.print("receiveDetailStream >>> ");
         dispatchDetailStream.print("dispatchDetailStream >>> ");
-        boundFinishDetailStream.print("boundFinshDetailStream >>> ");
+        boundFinishDetailStream.print("boundFinishDetailStream >>> ");
         deliverSucDetailStream.print("deliverDetailStream >>> ");
         signDetailStream.print("signDetailStream >>> ");
 
