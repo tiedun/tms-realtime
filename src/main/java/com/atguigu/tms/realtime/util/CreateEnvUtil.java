@@ -141,7 +141,8 @@ public class CreateEnvUtil {
                         .serverId(serverId)
                         .build();
             case "dim":
-               String[] dimTables = new String[] {"tms.base_complex",
+                String[] dimTables = new String[]{"tms.base_complex",
+                        "tms.base_dic",
                         "tms.base_organ",
                         "tms.base_region_info",
                         "tms.employee_info",
@@ -163,7 +164,7 @@ public class CreateEnvUtil {
                         .serverId(serverId)
                         .build();
             case "dwd":
-                String[] dwdTables = new String[] {"tms.base_complex",
+                String[] dwdTables = new String[]{"tms.base_complex",
                         "tms.express_task_collect",
                         "tms.express_task_delivery",
                         "tms.order_cargo",

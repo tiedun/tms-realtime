@@ -13,6 +13,7 @@ import org.apache.flink.api.common.eventtime.SerializableTimestampAssigner;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.AggregateFunction;
 import org.apache.flink.api.common.functions.MapFunction;
+import org.apache.flink.api.common.state.StateTtlConfig;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.java.tuple.Tuple2;
@@ -43,7 +44,7 @@ public class DwsTradeOrgOrderDay {
 
         // TODO 2. 从 Kafka tms_dwd_trade_order_detail 主题读取数据
         String topic = "tms_dwd_trade_order_detail";
-        String groupId = "dws_trade_org_order_day1";
+        String groupId = "dws_trade_org_order_day";
 
         FlinkKafkaConsumer<String> kafkaConsumer = KafkaUtil.getKafkaConsumer(topic, groupId, args);
         DataStreamSource<String> source = env.addSource(kafkaConsumer);
@@ -131,9 +132,12 @@ public class DwsTradeOrgOrderDay {
                     @Override
                     public void open(Configuration parameters) throws Exception {
                         super.open(parameters);
-                        isCountedState = getRuntimeContext().getState(
-                                new ValueStateDescriptor<Boolean>("is-counted", Boolean.class)
-                        );
+                        ValueStateDescriptor<Boolean> descriptor = new ValueStateDescriptor<>("is-counted", Boolean.class);
+                        // 设置 TTL 避免状态常驻，消耗资源
+                        // 通常同一订单明细数据的生成时间相差不会太大，ttl 设置为 5min 足矣
+                        descriptor.enableTimeToLive(StateTtlConfig.newBuilder(
+                                org.apache.flink.api.common.time.Time.seconds(5 * 60L)).build());
+                        isCountedState = getRuntimeContext().getState(descriptor);
                     }
 
                     @Override
@@ -224,8 +228,6 @@ public class DwsTradeOrgOrderDay {
                     @Override
                     public DwsTradeOrgOrderDayBean createAccumulator() {
                         return DwsTradeOrgOrderDayBean.builder()
-                                .orderCountBase(0L)
-                                .orderAmountBase(BigDecimal.ZERO)
                                 .build();
                     }
 
