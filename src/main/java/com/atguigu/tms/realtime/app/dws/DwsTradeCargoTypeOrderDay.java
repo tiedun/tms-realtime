@@ -3,6 +3,7 @@ package com.atguigu.tms.realtime.app.dws;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.atguigu.tms.realtime.app.func.DimAsyncFunction;
+import com.atguigu.tms.realtime.app.func.MyTriggerFunction;
 import com.atguigu.tms.realtime.bean.DwdTradeOrderDetailBean;
 import com.atguigu.tms.realtime.bean.DwsTradeCargoTypeOrderDayBean;
 import com.atguigu.tms.realtime.util.ClickHouseUtil;
@@ -20,17 +21,12 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.datastream.*;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
-import org.apache.flink.streaming.api.functions.async.AsyncFunction;
-import org.apache.flink.streaming.api.functions.async.ResultFuture;
 import org.apache.flink.streaming.api.functions.windowing.ProcessWindowFunction;
 import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
-import org.apache.flink.streaming.api.windowing.triggers.Trigger;
-import org.apache.flink.streaming.api.windowing.triggers.TriggerResult;
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer;
 import org.apache.flink.util.Collector;
 
-import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
@@ -38,6 +34,8 @@ public class DwsTradeCargoTypeOrderDay {
     public static void main(String[] args) throws Exception {
         // TODO 1. 环境准备
         StreamExecutionEnvironment env = CreateEnvUtil.getStreamEnv(args);
+
+        env.setParallelism(1);
 
         // TODO 2. 从 Kafka 指定主题消费数据
         String topic = "tms_dwd_trade_order_detail";
@@ -77,7 +75,7 @@ public class DwsTradeCargoTypeOrderDay {
                     }
 
                     @Override
-                    public void processElement(DwsTradeCargoTypeOrderDayBean bean, KeyedProcessFunction<String, DwsTradeCargoTypeOrderDayBean, DwsTradeCargoTypeOrderDayBean>.Context ctx, Collector<DwsTradeCargoTypeOrderDayBean> out) throws Exception {
+                    public void processElement(DwsTradeCargoTypeOrderDayBean bean, Context context, Collector<DwsTradeCargoTypeOrderDayBean> out) throws Exception {
                         Boolean isCounted = isCountedState.value();
                         if (isCounted == null) {
                             bean.setOrderCountBase(1L);
@@ -85,6 +83,7 @@ public class DwsTradeCargoTypeOrderDay {
                         } else {
                             bean.setOrderCountBase(0L);
                         }
+                        out.collect(bean);
                     }
                 }
         );
@@ -110,45 +109,7 @@ public class DwsTradeCargoTypeOrderDay {
 
         // TODO 8. 引入触发器
         WindowedStream<DwsTradeCargoTypeOrderDayBean, String, TimeWindow> withTriggerStream = windowStream.trigger(
-                new Trigger<DwsTradeCargoTypeOrderDayBean, TimeWindow>() {
-                    @Override
-                    public TriggerResult onElement(DwsTradeCargoTypeOrderDayBean bean, long timestamp, TimeWindow window, TriggerContext ctx) throws Exception {
-                        ValueState<Boolean> isFirstState = ctx.getPartitionedState(new ValueStateDescriptor<Boolean>("is-first", Boolean.class));
-                        Boolean isFirst = isFirstState.value();
-                        if (isFirst == null) {
-                            Long ts = bean.getTs();
-                            long nextTime = ts + 10 * 1000L - ts % (10 * 1000L);
-                            ctx.registerEventTimeTimer(nextTime);
-                            isFirstState.update(true);
-                        } else if (isFirst) {
-                            isFirstState.update(false);
-                        }
-                        return TriggerResult.CONTINUE;
-                    }
-
-                    @Override
-                    public TriggerResult onProcessingTime(long time, TimeWindow window, TriggerContext ctx) throws Exception {
-                        return TriggerResult.CONTINUE;
-                    }
-
-                    @Override
-                    public TriggerResult onEventTime(long time, TimeWindow window, TriggerContext ctx) throws Exception {
-                        long edt = window.getEnd();
-                        if (time < edt) {
-                            if (time + 10 * 1000L < edt) {
-                                ctx.registerEventTimeTimer(time + 10 * 1000L);
-                            }
-                            return TriggerResult.FIRE;
-                        }
-                        return TriggerResult.CONTINUE;
-                    }
-
-                    @Override
-                    public void clear(TimeWindow window, TriggerContext ctx) throws Exception {
-                        ValueState<Boolean> isFirstState = ctx.getPartitionedState(new ValueStateDescriptor<Boolean>("is-first", Boolean.class));
-                        isFirstState.clear();
-                    }
-                }
+                new MyTriggerFunction<DwsTradeCargoTypeOrderDayBean>()
         );
 
         // TODO 9. 聚合
@@ -186,7 +147,7 @@ public class DwsTradeCargoTypeOrderDay {
                     @Override
                     public void process(String key, Context context, Iterable<DwsTradeCargoTypeOrderDayBean> elements, Collector<DwsTradeCargoTypeOrderDayBean> out) throws Exception {
                         long stt = context.window().getStart() - 8 * 60 * 60 * 1000L;
-                        String curDate = DateFormatUtil.toYmdHms(stt);
+                        String curDate = DateFormatUtil.toDate(stt);
                         for (DwsTradeCargoTypeOrderDayBean element : elements) {
                             element.setCurDate(curDate);
                             element.setTs(System.currentTimeMillis());
@@ -213,7 +174,7 @@ public class DwsTradeCargoTypeOrderDay {
 
         // TODO 11. 写入 ClickHouse
         fullStream.addSink(ClickHouseUtil.getJdbcSink(
-                "insert into dws_trade_cargo_type_order_day values(?,?,?,?,?,?)"
+                "insert into dws_trade_cargo_type_order_day_base values(?,?,?,?,?,?)"
         ));
 
 

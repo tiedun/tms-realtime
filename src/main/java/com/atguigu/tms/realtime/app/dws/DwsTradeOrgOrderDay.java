@@ -3,6 +3,7 @@ package com.atguigu.tms.realtime.app.dws;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.atguigu.tms.realtime.app.func.DimAsyncFunction;
+import com.atguigu.tms.realtime.app.func.MyTriggerFunction;
 import com.atguigu.tms.realtime.bean.DwdTradeOrderDetailBean;
 import com.atguigu.tms.realtime.bean.DwsTradeOrgOrderDayBean;
 import com.atguigu.tms.realtime.util.ClickHouseUtil;
@@ -24,13 +25,10 @@ import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
 import org.apache.flink.streaming.api.functions.windowing.ProcessWindowFunction;
 import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
 import org.apache.flink.streaming.api.windowing.time.Time;
-import org.apache.flink.streaming.api.windowing.triggers.Trigger;
-import org.apache.flink.streaming.api.windowing.triggers.TriggerResult;
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer;
 import org.apache.flink.util.Collector;
 
-import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
@@ -103,27 +101,9 @@ public class DwsTradeOrgOrderDay {
                 TimeUnit.SECONDS
         );
 
-        // 4.3 关联机构信息
-        SingleOutputStreamOperator<DwsTradeOrgOrderDayBean> withOrgNameStream = AsyncDataStream.unorderedWait(
-                withOrgIdStream,
-                new DimAsyncFunction<DwsTradeOrgOrderDayBean>("dim_base_organ") {
-                    @Override
-                    public void join(DwsTradeOrgOrderDayBean bean, JSONObject dimJsonObj) throws Exception {
-                        bean.setOrgName(dimJsonObj.getString("org_name".toUpperCase()));
-                    }
-
-                    @Override
-                    public Object getCondition(DwsTradeOrgOrderDayBean bean) {
-                        return bean.getOrgId();
-                    }
-                },
-                5 * 60,
-                TimeUnit.SECONDS
-        );
-
         // TODO 5. 统计订单数
         KeyedStream<DwsTradeOrgOrderDayBean, String> keyedByOrderIdStream =
-                withOrgNameStream.keyBy(DwsTradeOrgOrderDayBean::getOrderId);
+                withOrgIdStream.keyBy(DwsTradeOrgOrderDayBean::getOrderId);
         SingleOutputStreamOperator<DwsTradeOrgOrderDayBean> withOrderCount = keyedByOrderIdStream.process(
                 new KeyedProcessFunction<String, DwsTradeOrgOrderDayBean, DwsTradeOrgOrderDayBean>() {
 
@@ -176,50 +156,7 @@ public class DwsTradeOrgOrderDay {
 
         // TODO 9. 引入触发器
         WindowedStream<DwsTradeOrgOrderDayBean, String, TimeWindow> triggeredStream = windowStream.trigger(
-                new Trigger<DwsTradeOrgOrderDayBean, TimeWindow>() {
-
-                    @Override
-                    public TriggerResult onElement(DwsTradeOrgOrderDayBean element, long timestamp,
-                                                   TimeWindow window, TriggerContext context) throws Exception {
-                        // 定义标记，用于辨识是否为第一条数据
-                        ValueState<Boolean> isFirstValue = context.getPartitionedState(new ValueStateDescriptor<Boolean>("is-first-value", Boolean.class));
-                        Boolean isFirst = isFirstValue.value();
-                        if (isFirst == null) {
-                            Long ts = element.getTs();
-                            long nextTriggerTime = ts + 10 * 1000L - ts % (10 * 1000L);
-                            context.registerEventTimeTimer(nextTriggerTime);
-                            isFirstValue.update(true);
-                        } else if (isFirst) {
-                            isFirstValue.update(false);
-                        }
-
-                        return TriggerResult.CONTINUE;
-                    }
-
-                    @Override
-                    public TriggerResult onProcessingTime(long time, TimeWindow window, TriggerContext context) throws Exception {
-                        return TriggerResult.CONTINUE;
-                    }
-
-                    @Override
-                    public TriggerResult onEventTime(long time, TimeWindow window, TriggerContext context) throws Exception {
-                        long windowEnd = window.getEnd();
-
-                        if (time < windowEnd) {
-                            if (time + 10 * 1000L < windowEnd) {
-                                context.registerEventTimeTimer(time + 10 * 1000L);
-                            }
-
-                            return TriggerResult.FIRE;
-                        }
-                        return TriggerResult.CONTINUE;
-                    }
-
-                    @Override
-                    public void clear(TimeWindow window, TriggerContext context) throws Exception {
-
-                    }
-                }
+                new MyTriggerFunction<DwsTradeOrgOrderDayBean>()
         );
 
         // TODO 10. 聚合
@@ -261,7 +198,7 @@ public class DwsTradeOrgOrderDay {
                         // 将窗口起始时间格式化为 yyyy-mm-dd HH:mm:ss 格式的日期字符串
                         // 左移八小时
                         long stt = context.window().getStart() - 8 * 60 * 60 * 1000L;
-                        String curDate = DateFormatUtil.toYmdHms(stt);
+                        String curDate = DateFormatUtil.toDate(stt);
 
                         // 补充日期字段，修改时间戳字段，并发送到下游
                         for (DwsTradeOrgOrderDayBean element : elements) {
@@ -275,8 +212,28 @@ public class DwsTradeOrgOrderDay {
                 }
         );
 
-        // TODO 11. 补充城市信息
-        SingleOutputStreamOperator<DwsTradeOrgOrderDayBean> fullStream = AsyncDataStream.unorderedWait(aggregatedStream,
+        // TODO 11. 补充维度信息
+        // 11.1 关联机构信息
+        SingleOutputStreamOperator<DwsTradeOrgOrderDayBean> withOrgNameStream = AsyncDataStream.unorderedWait(
+                aggregatedStream,
+                new DimAsyncFunction<DwsTradeOrgOrderDayBean>("dim_base_organ") {
+                    @Override
+                    public void join(DwsTradeOrgOrderDayBean bean, JSONObject dimJsonObj) throws Exception {
+                        bean.setOrgName(dimJsonObj.getString("org_name".toUpperCase()));
+                    }
+
+                    @Override
+                    public Object getCondition(DwsTradeOrgOrderDayBean bean) {
+                        return bean.getOrgId();
+                    }
+                },
+                5 * 60,
+                TimeUnit.SECONDS
+        );
+
+        // 11.2 关联城市信息
+        SingleOutputStreamOperator<DwsTradeOrgOrderDayBean> fullStream = AsyncDataStream.unorderedWait(
+                withOrgNameStream,
                 new DimAsyncFunction<DwsTradeOrgOrderDayBean>("dim_base_region_info") {
                     @Override
                     public void join(DwsTradeOrgOrderDayBean bean, JSONObject dimJsonObj) throws Exception {
