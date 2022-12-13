@@ -3,6 +3,7 @@ package com.atguigu.tms.realtime.app.dws;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.atguigu.tms.realtime.app.func.DimAsyncFunction;
+import com.atguigu.tms.realtime.app.func.MyAggregationFunction;
 import com.atguigu.tms.realtime.app.func.MyTriggerFunction;
 import com.atguigu.tms.realtime.bean.DwdTradeOrderDetailBean;
 import com.atguigu.tms.realtime.bean.DwsTradeOrgOrderDayBean;
@@ -161,16 +162,10 @@ public class DwsTradeOrgOrderDay {
 
         // TODO 10. 聚合
         SingleOutputStreamOperator<DwsTradeOrgOrderDayBean> aggregatedStream = triggeredStream.aggregate(
-                new AggregateFunction<DwsTradeOrgOrderDayBean, DwsTradeOrgOrderDayBean, DwsTradeOrgOrderDayBean>() {
-                    @Override
-                    public DwsTradeOrgOrderDayBean createAccumulator() {
-                        return DwsTradeOrgOrderDayBean.builder()
-                                .build();
-                    }
-
+                new MyAggregationFunction<DwsTradeOrgOrderDayBean>() {
                     @Override
                     public DwsTradeOrgOrderDayBean add(DwsTradeOrgOrderDayBean value, DwsTradeOrgOrderDayBean accumulator) {
-                        if (accumulator.getOrgId() == null) {
+                        if (accumulator == null) {
                             return value;
                         }
                         accumulator.setOrderCountBase(
@@ -180,16 +175,6 @@ public class DwsTradeOrgOrderDay {
                                 value.getOrderAmountBase().add(accumulator.getOrderAmountBase())
                         );
                         return accumulator;
-                    }
-
-                    @Override
-                    public DwsTradeOrgOrderDayBean getResult(DwsTradeOrgOrderDayBean accumulator) {
-                        return accumulator;
-                    }
-
-                    @Override
-                    public DwsTradeOrgOrderDayBean merge(DwsTradeOrgOrderDayBean a, DwsTradeOrgOrderDayBean b) {
-                        return null;
                     }
                 },
                 new ProcessWindowFunction<DwsTradeOrgOrderDayBean, DwsTradeOrgOrderDayBean, String, TimeWindow>() {

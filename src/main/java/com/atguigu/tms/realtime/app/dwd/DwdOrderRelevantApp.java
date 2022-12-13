@@ -260,21 +260,21 @@ public class DwdOrderRelevantApp {
 
         // TODO 9. 发送到 Kafka 指定主题
         // 9.1 定义主题名称
-        // 9.1.1 运单明细主题
+        // 9.1.1 交易域下单明细主题
         String detailTopic = "tms_dwd_trade_order_detail";
-        // 9.1.2 支付成功明细主题
+        // 9.1.2 交易域支付成功明细主题
         String paySucDetailTopic = "tms_dwd_trade_pay_suc_detail";
-        // 9.1.3 取消运单明细主题
+        // 9.1.3 交易域取消运单明细主题
         String cancelDetailTopic = "tms_dwd_trade_cancel_detail";
-        // 9.1.4 揽收明细主题
+        // 9.1.4 物流域接单（揽收）明细主题
         String receiveDetailTopic = "tms_dwd_trans_receive_detail";
-        // 9.1.5 发单明细主题
+        // 9.1.5 物流域发单明细主题
         String dispatchDetailTopic = "tms_dwd_trans_dispatch_detail";
-        // 9.1.6 转运完成明细主题
+        // 9.1.6 物流域转运完成明细主题
         String boundFinishDetailTopic = "tms_dwd_trans_bound_finish_detail";
-        // 9.1.7 派送成功明细主题
+        // 9.1.7 物流域派送成功明细主题
         String deliverSucDetailTopic = "tms_dwd_trans_deliver_detail";
-        // 9.1.8 签收明细主题
+        // 9.1.8 物流域签收明细主题
         String signDetailTopic = "tms_dwd_trans_sign_detail";
 
         // 9.2 发送数据到 Kafka

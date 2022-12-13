@@ -3,6 +3,7 @@ package com.atguigu.tms.realtime.app.dws;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.atguigu.tms.realtime.app.func.DimAsyncFunction;
+import com.atguigu.tms.realtime.app.func.MyAggregationFunction;
 import com.atguigu.tms.realtime.app.func.MyTriggerFunction;
 import com.atguigu.tms.realtime.bean.DwdTradeOrderDetailBean;
 import com.atguigu.tms.realtime.bean.DwsTradeCargoTypeOrderDayBean;
@@ -114,16 +115,10 @@ public class DwsTradeCargoTypeOrderDay {
 
         // TODO 9. 聚合
         SingleOutputStreamOperator<DwsTradeCargoTypeOrderDayBean> aggregatedStream = withTriggerStream.aggregate(
-                new AggregateFunction<DwsTradeCargoTypeOrderDayBean, DwsTradeCargoTypeOrderDayBean, DwsTradeCargoTypeOrderDayBean>() {
-                    @Override
-                    public DwsTradeCargoTypeOrderDayBean createAccumulator() {
-                        return DwsTradeCargoTypeOrderDayBean.builder()
-                                .build();
-                    }
-
+                new MyAggregationFunction<DwsTradeCargoTypeOrderDayBean>() {
                     @Override
                     public DwsTradeCargoTypeOrderDayBean add(DwsTradeCargoTypeOrderDayBean value, DwsTradeCargoTypeOrderDayBean accumulator) {
-                        if (accumulator.getCargoType() == null) {
+                        if (accumulator == null) {
                             return value;
                         }
                         accumulator.setOrderAmountBase(
@@ -131,16 +126,6 @@ public class DwsTradeCargoTypeOrderDay {
                         accumulator.setOrderCountBase(
                                 value.getOrderCountBase() + accumulator.getOrderCountBase());
                         return accumulator;
-                    }
-
-                    @Override
-                    public DwsTradeCargoTypeOrderDayBean getResult(DwsTradeCargoTypeOrderDayBean accumulator) {
-                        return accumulator;
-                    }
-
-                    @Override
-                    public DwsTradeCargoTypeOrderDayBean merge(DwsTradeCargoTypeOrderDayBean a, DwsTradeCargoTypeOrderDayBean b) {
-                        return null;
                     }
                 },
                 new ProcessWindowFunction<DwsTradeCargoTypeOrderDayBean, DwsTradeCargoTypeOrderDayBean, String, TimeWindow>() {

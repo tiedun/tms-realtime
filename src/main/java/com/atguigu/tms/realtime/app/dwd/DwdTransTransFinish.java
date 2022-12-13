@@ -2,7 +2,7 @@ package com.atguigu.tms.realtime.app.dwd;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
-import com.atguigu.tms.realtime.bean.DwdTransTransBean;
+import com.atguigu.tms.realtime.bean.DwdTransTransFinishBean;
 import com.atguigu.tms.realtime.util.CreateEnvUtil;
 import com.atguigu.tms.realtime.util.DateFormatUtil;
 import com.atguigu.tms.realtime.util.KafkaUtil;
@@ -15,7 +15,7 @@ import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer;
 import org.apache.flink.util.Collector;
 
-public class DwdTransTrans {
+public class DwdTransTransFinish {
     public static void main(String[] args) throws Exception {
         // TODO 1. 环境准备
         StreamExecutionEnvironment env = CreateEnvUtil.getStreamEnv(args);
@@ -25,7 +25,7 @@ public class DwdTransTrans {
 
         // TODO 2. 从 Kafka tms_ods 主题读取数据
         String topic = "tms_ods";
-        String groupId = "dwd_trans_trans";
+        String groupId = "dwd_trans_trans_finish";
         FlinkKafkaConsumer<String> kafkaConsumer = KafkaUtil.getKafkaConsumer(topic, groupId, args);
         DataStreamSource<String> source = env.addSource(kafkaConsumer);
 
@@ -62,39 +62,40 @@ public class DwdTransTrans {
                     public void processElement(String jsonStr, Context context, Collector<String> out) throws Exception {
                         // 获取修改后的数据并转换数据类型
                         JSONObject jsonObj = JSON.parseObject(jsonStr);
-                        DwdTransTransBean dwdTransTransBean =
-                                jsonObj.getObject("after", DwdTransTransBean.class);
+                        DwdTransTransFinishBean dwdTransTransFinishBean =
+                                jsonObj.getObject("after", DwdTransTransFinishBean.class);
 
                         // 补全时间戳字段
-                        dwdTransTransBean.setTs(
-                                Long.parseLong(dwdTransTransBean.getActualEndTime())
+                        dwdTransTransFinishBean.setTs(
+                                Long.parseLong(dwdTransTransFinishBean.getActualEndTime())
                                         - 8 * 60 * 60 * 1000L
                         );
 
                         // 补全运输时间字段
-                        dwdTransTransBean.setTransportTime(
-                                Long.parseLong(dwdTransTransBean.getActualEndTime())
-                                        - Long.parseLong(dwdTransTransBean.getActualStartTime())
+                        dwdTransTransFinishBean.setTransportTime(
+                                Long.parseLong(dwdTransTransFinishBean.getActualEndTime())
+                                        - Long.parseLong(dwdTransTransFinishBean.getActualStartTime())
                         );
 
                         // 处理时区问题
-                        dwdTransTransBean.setActualStartTime(
+                        dwdTransTransFinishBean.setActualStartTime(
                                 DateFormatUtil.toYmdHms(
-                                        Long.parseLong(dwdTransTransBean.getActualStartTime())
+                                        Long.parseLong(dwdTransTransFinishBean.getActualStartTime())
                                                 - 8 * 60 * 60 * 1000L));
 
-                        dwdTransTransBean.setActualEndTime(
+                        dwdTransTransFinishBean.setActualEndTime(
                                 DateFormatUtil.toYmdHms(
-                                        Long.parseLong(dwdTransTransBean.getActualEndTime())
+                                        Long.parseLong(dwdTransTransFinishBean.getActualEndTime())
                                                 - 8 * 60 * 60 * 1000L));
 
-                        out.collect(JSON.toJSONString(dwdTransTransBean));
+                        out.collect(JSON.toJSONString(dwdTransTransFinishBean));
                     }
                 }
         );
 
-        // TODO 5. 写出到 Kafka dwd_trans_trans 主题
-        String sinkTopic = "tms_dwd_trans_trans";
+        // TODO 5. 写出到 Kafka tms_dwd_trans_trans_finish 主题
+        // 物流域运输完成事实主题
+        String sinkTopic = "tms_dwd_trans_trans_finish";
         FlinkKafkaProducer<String> kafkaProducer = KafkaUtil.getKafkaProducer(sinkTopic, args);
         processedStream.addSink(kafkaProducer);
 

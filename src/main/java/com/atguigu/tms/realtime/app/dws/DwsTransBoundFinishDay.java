@@ -1,6 +1,7 @@
 package com.atguigu.tms.realtime.app.dws;
 
 import com.alibaba.fastjson.JSON;
+import com.atguigu.tms.realtime.app.func.MyAggregationFunction;
 import com.atguigu.tms.realtime.app.func.MyTriggerFunction;
 import com.atguigu.tms.realtime.bean.DwdTransDispatchDetailBean;
 import com.atguigu.tms.realtime.bean.DwsTransBoundFinishDayBean;
@@ -106,31 +107,15 @@ public class DwsTransBoundFinishDay {
 
         // TODO 8. 聚合
         SingleOutputStreamOperator<DwsTransBoundFinishDayBean> aggregatedStream = triggerStream.aggregate(
-                new AggregateFunction<DwsTransBoundFinishDayBean, DwsTransBoundFinishDayBean, DwsTransBoundFinishDayBean>() {
-                    @Override
-                    public DwsTransBoundFinishDayBean createAccumulator() {
-                        return DwsTransBoundFinishDayBean.builder().build();
-                    }
-
-                    @Override
+                new MyAggregationFunction<DwsTransBoundFinishDayBean>() {
                     public DwsTransBoundFinishDayBean add(DwsTransBoundFinishDayBean value, DwsTransBoundFinishDayBean accumulator) {
-                        if (accumulator.getBoundFinishOrderCountBase() == null) {
+                        if (accumulator == null) {
                             return value;
                         }
                         accumulator.setBoundFinishOrderCountBase(
                                 accumulator.getBoundFinishOrderCountBase() + value.getBoundFinishOrderCountBase()
                         );
                         return accumulator;
-                    }
-
-                    @Override
-                    public DwsTransBoundFinishDayBean getResult(DwsTransBoundFinishDayBean accumulator) {
-                        return accumulator;
-                    }
-
-                    @Override
-                    public DwsTransBoundFinishDayBean merge(DwsTransBoundFinishDayBean a, DwsTransBoundFinishDayBean b) {
-                        return null;
                     }
                 },
                 new ProcessAllWindowFunction<DwsTransBoundFinishDayBean, DwsTransBoundFinishDayBean, TimeWindow>() {

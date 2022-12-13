@@ -5,7 +5,7 @@ import lombok.Data;
 import java.math.BigDecimal;
 
 @Data
-public class DwdTransTransBean {
+public class DwdTransTransFinishBean {
     // 编号（主键）
     String id;
 

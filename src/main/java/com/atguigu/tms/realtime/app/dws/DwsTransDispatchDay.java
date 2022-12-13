@@ -1,6 +1,7 @@
 package com.atguigu.tms.realtime.app.dws;
 
 import com.alibaba.fastjson.JSON;
+import com.atguigu.tms.realtime.app.func.MyAggregationFunction;
 import com.atguigu.tms.realtime.app.func.MyTriggerFunction;
 import com.atguigu.tms.realtime.bean.DwdTransDispatchDetailBean;
 import com.atguigu.tms.realtime.bean.DwsTransDispatchDayBean;
@@ -104,31 +105,16 @@ public class DwsTransDispatchDay {
 
         // TODO 8. 聚合
         SingleOutputStreamOperator<DwsTransDispatchDayBean> aggregatedStream = triggerStream.aggregate(
-                new AggregateFunction<DwsTransDispatchDayBean, DwsTransDispatchDayBean, DwsTransDispatchDayBean>() {
-                    @Override
-                    public DwsTransDispatchDayBean createAccumulator() {
-                        return DwsTransDispatchDayBean.builder().build();
-                    }
-
+                new MyAggregationFunction<DwsTransDispatchDayBean>() {
                     @Override
                     public DwsTransDispatchDayBean add(DwsTransDispatchDayBean value, DwsTransDispatchDayBean accumulator) {
-                        if (accumulator.getDispatchOrderCountBase() == null) {
+                        if (accumulator == null) {
                             return value;
                         }
                         accumulator.setDispatchOrderCountBase(
                                 accumulator.getDispatchOrderCountBase() + value.getDispatchOrderCountBase()
                         );
                         return accumulator;
-                    }
-
-                    @Override
-                    public DwsTransDispatchDayBean getResult(DwsTransDispatchDayBean accumulator) {
-                        return accumulator;
-                    }
-
-                    @Override
-                    public DwsTransDispatchDayBean merge(DwsTransDispatchDayBean a, DwsTransDispatchDayBean b) {
-                        return null;
                     }
                 },
                 new ProcessAllWindowFunction<DwsTransDispatchDayBean, DwsTransDispatchDayBean, TimeWindow>() {

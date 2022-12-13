@@ -148,8 +148,11 @@ public class DwdBoundRelevantApp {
         DataStream<String> outboundStream = processedStream.getSideOutput(outBoundTag);
 
         // TODO 7. 写出到 Kafka 指定主题
+        // 中转域入库事实主题
         String inboundTopic = "tms_dwd_bound_inbound";
+        // 中转域分拣事实主题
         String sortTopic = "tms_dwd_bound_sort";
+        // 中转域出库事实主题
         String outboundTopic = "tms_dwd_bound_outbound";
 
         FlinkKafkaProducer<String> inboundProducer = KafkaUtil.getKafkaProducer(inboundTopic, args);

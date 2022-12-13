@@ -3,6 +3,7 @@ package com.atguigu.tms.realtime.app.dws;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.atguigu.tms.realtime.app.func.DimAsyncFunction;
+import com.atguigu.tms.realtime.app.func.MyAggregationFunction;
 import com.atguigu.tms.realtime.app.func.MyTriggerFunction;
 import com.atguigu.tms.realtime.bean.DwdTransReceiveDetailBean;
 import com.atguigu.tms.realtime.bean.DwsTransOrgReceiveDayBean;
@@ -50,6 +51,7 @@ public class DwsTransOrgReceiveDay {
                     return DwsTransOrgReceiveDayBean.builder()
                             .orderId(dwdTransReceiveDetailBean.getOrderId())
                             .complexId(dwdTransReceiveDetailBean.getSenderComplexId())
+                            .cityId(dwdTransReceiveDetailBean.getSenderCityId())
                             .ts(dwdTransReceiveDetailBean.getTs() + 8 * 60 * 60 * 1000L)
                             .build();
                 }
@@ -148,30 +150,15 @@ public class DwsTransOrgReceiveDay {
 
         // TODO 10. 聚合
         SingleOutputStreamOperator<DwsTransOrgReceiveDayBean> aggregatedStream = triggerStream.aggregate(
-                new AggregateFunction<DwsTransOrgReceiveDayBean, DwsTransOrgReceiveDayBean, DwsTransOrgReceiveDayBean>() {
-                    @Override
-                    public DwsTransOrgReceiveDayBean createAccumulator() {
-                        return DwsTransOrgReceiveDayBean.builder().build();
-                    }
-
+                new MyAggregationFunction<DwsTransOrgReceiveDayBean>() {
                     @Override
                     public DwsTransOrgReceiveDayBean add(DwsTransOrgReceiveDayBean value, DwsTransOrgReceiveDayBean accumulator) {
-                        if (accumulator.getOrderId() == null) {
+                        if (accumulator == null) {
                             return value;
                         }
                         accumulator.setReceiveOrderCountBase(
                                 accumulator.getReceiveOrderCountBase() + value.getReceiveOrderCountBase());
                         return accumulator;
-                    }
-
-                    @Override
-                    public DwsTransOrgReceiveDayBean getResult(DwsTransOrgReceiveDayBean accumulator) {
-                        return accumulator;
-                    }
-
-                    @Override
-                    public DwsTransOrgReceiveDayBean merge(DwsTransOrgReceiveDayBean a, DwsTransOrgReceiveDayBean b) {
-                        return null;
                     }
                 },
                 new ProcessWindowFunction<DwsTransOrgReceiveDayBean, DwsTransOrgReceiveDayBean, String, TimeWindow>() {
@@ -209,7 +196,7 @@ public class DwsTransOrgReceiveDay {
         );
 
         // 11.2 补充地区名称
-        SingleOutputStreamOperator<DwsTransOrgReceiveDayBean> fullStream = AsyncDataStream.unorderedWait(
+        SingleOutputStreamOperator<DwsTransOrgReceiveDayBean> withRegionNameStream = AsyncDataStream.unorderedWait(
                 withOrgNameStream,
                 new DimAsyncFunction<DwsTransOrgReceiveDayBean>("dim_base_region_info".toUpperCase()) {
                     @Override
@@ -225,9 +212,26 @@ public class DwsTransOrgReceiveDay {
                 60, TimeUnit.SECONDS
         );
 
+        // 11.3 补充城市名称
+        SingleOutputStreamOperator<DwsTransOrgReceiveDayBean> fullStream = AsyncDataStream.unorderedWait(
+                withRegionNameStream,
+                new DimAsyncFunction<DwsTransOrgReceiveDayBean>("dim_base_region_info".toUpperCase()) {
+                    @Override
+                    public void join(DwsTransOrgReceiveDayBean bean, JSONObject dimJsonObj) throws Exception {
+                        bean.setCityName(dimJsonObj.getString("name".toUpperCase()));
+                    }
+
+                    @Override
+                    public Object getCondition(DwsTransOrgReceiveDayBean bean) {
+                        return bean.getCityId();
+                    }
+                },
+                60, TimeUnit.SECONDS
+        );
+
         // TODO 12. 写出到 ClickHouse
         fullStream.addSink(
-                ClickHouseUtil.getJdbcSink("insert into dws_trans_org_receive_day_base values(?,?,?,?,?,?,?)")
+                ClickHouseUtil.getJdbcSink("insert into dws_trans_org_receive_day_base values(?,?,?,?,?,?,?,?,?)")
         );
 
 

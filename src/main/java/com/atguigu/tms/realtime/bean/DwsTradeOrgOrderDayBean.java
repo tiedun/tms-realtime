@@ -19,7 +19,7 @@ public class DwsTradeOrgOrderDayBean {
     // 机构名称
     String orgName;
 
-    // 城市编码
+    // 城市ID
     String cityId;
 
     // 城市名称
