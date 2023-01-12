@@ -12,7 +12,6 @@ import org.apache.flink.api.common.time.Time;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.datastream.DataStream;
-import org.apache.flink.streaming.api.datastream.DataStreamSource;
 import org.apache.flink.streaming.api.datastream.KeyedStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
@@ -21,10 +20,6 @@ import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
-import org.mortbay.log.Log;
-
-import java.util.ArrayList;
-import java.util.Collections;
 
 public class DwdOrderRelevantApp {
     public static void main(String[] args) throws Exception {
@@ -38,9 +33,10 @@ public class DwdOrderRelevantApp {
         String topic = "tms_ods";
         String groupId = "dwd_order_relevant_app";
         FlinkKafkaConsumer<String> kafkaConsumer = KafkaUtil.getKafkaConsumer(topic, groupId, args);
-        DataStreamSource<String> source = env.addSource(kafkaConsumer);
+        SingleOutputStreamOperator<String> source = env.addSource(kafkaConsumer)
+                .uid("kafka_source");
 
-        // TODO 3. 筛选订单和订单明细数据
+        // TODO 3. 筛选运单和运单明细数据
         SingleOutputStreamOperator<String> filteredStream = source.filter(
                 new FilterFunction<String>() {
                     @Override
@@ -121,7 +117,7 @@ public class DwdOrderRelevantApp {
                         );
                         ValueStateDescriptor<DwdOrderInfoOriginBean> infoBeanStateDescriptor
                                 = new ValueStateDescriptor<>("info_bean_state", DwdOrderInfoOriginBean.class);
-                        infoBeanStateDescriptor.enableTimeToLive(StateTtlConfig.newBuilder(Time.seconds(60L)).build());
+                        infoBeanStateDescriptor.enableTimeToLive(StateTtlConfig.newBuilder(Time.seconds(5L)).build());
                         infoBeanState = getRuntimeContext().getState(
                                 infoBeanStateDescriptor
                         );
@@ -135,6 +131,20 @@ public class DwdOrderRelevantApp {
                         switch (table) {
                             case "order_info":
                                 DwdOrderInfoOriginBean infoOriginBean = data.toJavaObject(DwdOrderInfoOriginBean.class);
+
+                                // 脱敏
+                                String senderName = infoOriginBean.getSenderName();
+                                String receiverName = infoOriginBean.getReceiverName();
+
+                                senderName = senderName.charAt(0) +
+                                        senderName.substring(1)
+                                                .replaceAll(".", "\\*");
+                                receiverName = receiverName.charAt(0) +
+                                        receiverName.substring(1)
+                                                .replaceAll(".", "\\*");
+
+                                infoOriginBean.setSenderName(senderName);
+                                infoOriginBean.setReceiverName(receiverName);
 
                                 if (op.equals("c")) {
                                     infoBeanState.update(infoOriginBean);
@@ -233,7 +243,7 @@ public class DwdOrderRelevantApp {
                         }
                     }
                 }
-        );
+        ).uid("process_data_stream");
 
         // TODO 8. 提取侧输出流
         // 8.1 支付成功明细流
@@ -250,13 +260,6 @@ public class DwdOrderRelevantApp {
         DataStream<String> deliverSucDetailStream = processedStream.getSideOutput(deliverSucDetailTag);
         // 8.7 签收明细流
         DataStream<String> signDetailStream = processedStream.getSideOutput(signDetailTag);
-        paySucStream.print("paySucStream >>> ");
-        cancelDetailStream.print("cancelDetailStream >>> ");
-        receiveDetailStream.print("receiveDetailStream >>> ");
-        dispatchDetailStream.print("dispatchDetailStream >>> ");
-        boundFinishDetailStream.print("boundFinishDetailStream >>> ");
-        deliverSucDetailStream.print("deliverDetailStream >>> ");
-        signDetailStream.print("signDetailStream >>> ");
 
         // TODO 9. 发送到 Kafka 指定主题
         // 9.1 定义主题名称
@@ -280,35 +283,52 @@ public class DwdOrderRelevantApp {
         // 9.2 发送数据到 Kafka
         // 9.2.1 运单明细数据
         FlinkKafkaProducer<String> kafkaProducer = KafkaUtil.getKafkaProducer(detailTopic, args);
-        processedStream.addSink(kafkaProducer);
+        processedStream
+                .addSink(kafkaProducer)
+                .uid("order_detail_sink");
 
         // 9.2.2 支付成功明细数据
         FlinkKafkaProducer<String> paySucKafkaProducer = KafkaUtil.getKafkaProducer(paySucDetailTopic, args);
-        paySucStream.addSink(paySucKafkaProducer);
+        paySucStream
+                .addSink(paySucKafkaProducer)
+                .uid("pay_suc_detail_sink");
 
         // 9.2.3 取消运单明细数据
         FlinkKafkaProducer<String> cancelKafkaProducer = KafkaUtil.getKafkaProducer(cancelDetailTopic, args);
-        cancelDetailStream.addSink(cancelKafkaProducer);
+        cancelDetailStream
+                .addSink(cancelKafkaProducer)
+                .uid("cancel_detail_sink");
 
         // 9.2.4 揽收明细数据
         FlinkKafkaProducer<String> receiveKafkaProducer = KafkaUtil.getKafkaProducer(receiveDetailTopic, args);
-        receiveDetailStream.addSink(receiveKafkaProducer);
+        receiveDetailStream
+                .addSink(receiveKafkaProducer)
+                .uid("reveive_detail_sink");
 
         // 9.2.5 发单明细数据
         FlinkKafkaProducer<String> dispatchKafkaProducer = KafkaUtil.getKafkaProducer(dispatchDetailTopic, args);
-        dispatchDetailStream.addSink(dispatchKafkaProducer);
+        dispatchDetailStream
+                .addSink(dispatchKafkaProducer)
+                .uid("dispatch_detail_sink");
 
         // 9.2.6 转运完成明细主题
         FlinkKafkaProducer<String> boundFinishKafkaProducer = KafkaUtil.getKafkaProducer(boundFinishDetailTopic, args);
-        boundFinishDetailStream.addSink(boundFinishKafkaProducer);
+        boundFinishDetailStream
+                .addSink(boundFinishKafkaProducer)
+                .uid("bound_finish_detail_sink");
+
 
         // 9.2.7 派送成功明细数据
         FlinkKafkaProducer<String> deliverSucKafkaProducer = KafkaUtil.getKafkaProducer(deliverSucDetailTopic, args);
-        deliverSucDetailStream.addSink(deliverSucKafkaProducer);
+        deliverSucDetailStream
+                .addSink(deliverSucKafkaProducer)
+                .uid("deliver_suc_detail_sink");
 
         // 9.2.8 签收明细数据
         FlinkKafkaProducer<String> signKafkaProducer = KafkaUtil.getKafkaProducer(signDetailTopic, args);
-        signDetailStream.addSink(signKafkaProducer);
+        signDetailStream
+                .addSink(signKafkaProducer)
+                .uid("sign_detail_sink");
 
         env.execute();
     }

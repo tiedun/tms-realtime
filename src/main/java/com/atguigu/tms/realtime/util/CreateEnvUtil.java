@@ -112,16 +112,16 @@ public class CreateEnvUtil {
                         .startupOptions(StartupOptions.initial())
                         .serverId(serverId)
                         .build();
-            // 离线维度数据源
-            case "offline_dim":
-                String[] dimTables = new String[]{"tms.user_info",
-                        "tms.user_address"};
-                return builder
-                        .databaseList("tms")
-                        .tableList(dimTables)
-                        .startupOptions(StartupOptions.initial())
-                        .serverId(serverId)
-                        .build();
+//            // 离线维度数据源
+//            case "offline_dim":
+//                String[] dimTables = new String[]{"tms.user_info",
+//                        "tms.user_address"};
+//                return builder
+//                        .databaseList("tms")
+//                        .tableList(dimTables)
+//                        .startupOptions(StartupOptions.initial())
+//                        .serverId(serverId)
+//                        .build();
             // 事实数据源（离线实时相同）
             case "dwd":
                 String[] dwdTables = new String[]{"tms.order_info",
@@ -136,12 +136,14 @@ public class CreateEnvUtil {
                         .build();
             // 实时维度数据源
             case "realtime_dim":
-                String[] realtimeDimTables = new String[]{
+                String[] realtimeDimTables = new String[]{"tms.user_info",
+                        "tms.user_address",
                         "tms.base_complex",
                         "tms.base_dic",
                         "tms.base_region_info",
                         "tms.base_organ",
                         "tms.express_courier",
+                        "tms.express_courier_complex",
                         "tms.employee_info",
                         "tms.line_base_shift",
                         "tms.line_base_info",

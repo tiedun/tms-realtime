@@ -37,13 +37,13 @@ public class DwsTransOrgTruckModelTransFinishDayBean {
     // 城市名称
     String cityName;
 
-    // 转运完成次数
+    // 运输完成次数
     Long transFinishCountBase;
 
-    // 转运完成里程
+    // 运输完成里程
     BigDecimal transFinishDistanceBase;
 
-    // 转运完成历经时长
+    // 运输完成历经时长
     Long transFinishDurTimeBase;
 
     // 时间戳

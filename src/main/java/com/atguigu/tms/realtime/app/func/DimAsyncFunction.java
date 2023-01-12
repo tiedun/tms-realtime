@@ -40,7 +40,6 @@ public abstract class DimAsyncFunction<T> extends RichAsyncFunction<T, T> implem
                             Object condition = getCondition(obj);
 
                             // 2. 根据维度的主键获取维度对象
-
                             JSONObject dimJsonObj = null;
                             try {
                                 if (condition instanceof String) {
@@ -77,22 +76,22 @@ public abstract class DimAsyncFunction<T> extends RichAsyncFunction<T, T> implem
         );
     }
 
-    public static void main(String[] args) {
-        Object condition = null;
-        Object condition2 = null;
-        Object condition3 = null;
-        condition = "1";
-        condition2 = Tuple2.of("1", "1");
-        condition3 = new Tuple2[] {Tuple2.of("hh", "xx"), Tuple2.of("ds", "23")};
-        if (condition instanceof String) {
-            String conditionKey = (String) condition;
-            System.out.println("1");
-        } if (condition2 instanceof Tuple2) {
-            Tuple2<String, String> keyValuePair = (Tuple2<String, String>) condition2;
-            System.out.println("2");
-        } if (condition3 instanceof Tuple2[]) {
-            Tuple2<String, String>[] keyValuePair = (Tuple2<String, String>[]) condition3;
-            System.out.println("3");
-        }
-    }
+//    public static void main(String[] args) {
+//        Object condition = null;
+//        Object condition2 = null;
+//        Object condition3 = null;
+//        condition = "1";
+//        condition2 = Tuple2.of("1", "1");
+//        condition3 = new Tuple2[] {Tuple2.of("hh", "xx"), Tuple2.of("ds", "23")};
+//        if (condition instanceof String) {
+//            String conditionKey = (String) condition;
+//            System.out.println("1");
+//        } if (condition2 instanceof Tuple2) {
+//            Tuple2<String, String> keyValuePair = (Tuple2<String, String>) condition2;
+//            System.out.println("2");
+//        } if (condition3 instanceof Tuple2[]) {
+//            Tuple2<String, String>[] keyValuePair = (Tuple2<String, String>[]) condition3;
+//            System.out.println("3");
+//        }
+//    }
 }

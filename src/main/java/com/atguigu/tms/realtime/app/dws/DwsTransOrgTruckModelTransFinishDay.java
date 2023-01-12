@@ -29,13 +29,16 @@ public class DwsTransOrgTruckModelTransFinishDay {
     public static void main(String[] args) throws Exception {
         // TODO 1. 环境准备
         StreamExecutionEnvironment env = CreateEnvUtil.getStreamEnv(args);
+
+        // 并行度设置，部署时应注释，通过 args 指定全局并行度
         env.setParallelism(4);
 
         // TODO 2. 从 Kafka tms_dwd_trans_trans_finish 主题读取数据
         String topic = "tms_dwd_trans_trans_finish";
         String groupId = "dws_trans_org_truck_model_trans_finish_day";
         FlinkKafkaConsumer<String> kafkaConsumer = KafkaUtil.getKafkaConsumer(topic, groupId, args);
-        DataStreamSource<String> source = env.addSource(kafkaConsumer);
+        SingleOutputStreamOperator<String> source = env.addSource(kafkaConsumer)
+                .uid("kafka_source");
 
         // TODO 3. 转换数据结构
         SingleOutputStreamOperator<DwsTransOrgTruckModelTransFinishDayBean> mappedStream = source.map(jsonStr -> {
@@ -66,7 +69,7 @@ public class DwsTransOrgTruckModelTransFinishDay {
                     }
                 },
                 60, TimeUnit.SECONDS
-        );
+        ).uid("with_truck_model_id_stream");
 
         // TODO 5. 设置水位线
         SingleOutputStreamOperator<DwsTransOrgTruckModelTransFinishDayBean> withWatermarkStream = withTruckModelIdStream.assignTimestampsAndWatermarks(
@@ -77,7 +80,7 @@ public class DwsTransOrgTruckModelTransFinishDay {
                                 return element.getTs();
                             }
                         })
-        );
+        ).uid("watermark_stream");
 
         // TODO 6. 按照机构 ID 和卡车类型 ID 分组
         KeyedStream<DwsTransOrgTruckModelTransFinishDayBean, String> keyedStream = withWatermarkStream.keyBy(
@@ -123,7 +126,7 @@ public class DwsTransOrgTruckModelTransFinishDay {
                         }
                     }
                 }
-        );
+        ).uid("aggregate_stream");
 
         // TODO 10. 关联维度信息
         // 10.1 获取卡车类型名称
@@ -141,7 +144,7 @@ public class DwsTransOrgTruckModelTransFinishDay {
                     }
                 },
                 60, TimeUnit.SECONDS
-        );
+        ).uid("with_truck_model_name_stream");
 
         // 10.2 获取用于关联城市的机构 ID
         SingleOutputStreamOperator<DwsTransOrgTruckModelTransFinishDayBean> withJoinOrgIdStream = AsyncDataStream.unorderedWait(
@@ -161,7 +164,7 @@ public class DwsTransOrgTruckModelTransFinishDay {
                     }
                 },
                 60, TimeUnit.SECONDS
-        );
+        ).uid("with_join_org_id_stream");
 
         // 10.3 获取城市 ID
         SingleOutputStreamOperator<DwsTransOrgTruckModelTransFinishDayBean> withCityIdStream = AsyncDataStream.unorderedWait(
@@ -178,7 +181,7 @@ public class DwsTransOrgTruckModelTransFinishDay {
                     }
                 },
                 60, TimeUnit.SECONDS
-        );
+        ).uid("with_city_id_stream");
 
         // 10.4 获取城市名称
         SingleOutputStreamOperator<DwsTransOrgTruckModelTransFinishDayBean> fullStream = AsyncDataStream.unorderedWait(
@@ -195,13 +198,12 @@ public class DwsTransOrgTruckModelTransFinishDay {
                     }
                 },
                 60, TimeUnit.SECONDS
-        );
+        ).uid("with_city_name_stream");
 
         // TODO 11. 写出到 ClickHouse
         fullStream.addSink(
                 ClickHouseUtil.getJdbcSink("insert into dws_trans_org_truck_model_trans_finish_day_base values(?,?,?,?,?,?,?,?,?,?,?)")
-        );
-
+        ).uid("clickhouse_stream");
 
         env.execute();
     }

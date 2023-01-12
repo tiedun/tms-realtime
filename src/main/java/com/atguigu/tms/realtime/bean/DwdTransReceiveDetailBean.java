@@ -1,7 +1,6 @@
 package com.atguigu.tms.realtime.bean;
 
 import com.atguigu.tms.realtime.util.DateFormatUtil;
-import com.esotericsoftware.minlog.Log;
 import lombok.Data;
 
 import java.math.BigDecimal;

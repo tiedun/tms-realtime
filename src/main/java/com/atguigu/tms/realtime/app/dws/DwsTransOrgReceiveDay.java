@@ -13,7 +13,6 @@ import com.atguigu.tms.realtime.util.DateFormatUtil;
 import com.atguigu.tms.realtime.util.KafkaUtil;
 import org.apache.flink.api.common.eventtime.SerializableTimestampAssigner;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
-import org.apache.flink.api.common.functions.AggregateFunction;
 import org.apache.flink.api.common.state.StateTtlConfig;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
@@ -36,13 +35,16 @@ public class DwsTransOrgReceiveDay {
     public static void main(String[] args) throws Exception {
         // TODO 1. 环境准备
         StreamExecutionEnvironment env = CreateEnvUtil.getStreamEnv(args);
-        env.setParallelism(1);
+
+        // 并行度设置，部署时应注释，通过 args 指定全局并行度
+        env.setParallelism(4);
 
         // TODO 2. 从指定主题读取数据
         String topic = "tms_dwd_trans_receive_detail";
         String groupId = "dws_trans_org_receive_day";
         FlinkKafkaConsumer<String> kafkaConsumer = KafkaUtil.getKafkaConsumer(topic, groupId, args);
-        DataStreamSource<String> source = env.addSource(kafkaConsumer);
+        SingleOutputStreamOperator<String> source = env.addSource(kafkaConsumer)
+                .uid("kafka_source");
 
         // TODO 3. 转换数据结构
         SingleOutputStreamOperator<DwsTransOrgReceiveDayBean> mappedStream = source.map(
@@ -50,7 +52,8 @@ public class DwsTransOrgReceiveDay {
                     DwdTransReceiveDetailBean dwdTransReceiveDetailBean = JSON.parseObject(jsonStr, DwdTransReceiveDetailBean.class);
                     return DwsTransOrgReceiveDayBean.builder()
                             .orderId(dwdTransReceiveDetailBean.getOrderId())
-                            .complexId(dwdTransReceiveDetailBean.getSenderComplexId())
+                            .districtId(dwdTransReceiveDetailBean.getSenderDistrictId())
+                            .provinceId(dwdTransReceiveDetailBean.getSenderProvinceId())
                             .cityId(dwdTransReceiveDetailBean.getSenderCityId())
                             .ts(dwdTransReceiveDetailBean.getTs() + 8 * 60 * 60 * 1000L)
                             .build();
@@ -58,41 +61,22 @@ public class DwsTransOrgReceiveDay {
         );
 
         // TODO 4. 关联维度信息
-        // 4.1 关联快递员id
-        SingleOutputStreamOperator<DwsTransOrgReceiveDayBean> withCourierIdStream = AsyncDataStream.unorderedWait(
-                mappedStream,
-                new DimAsyncFunction<DwsTransOrgReceiveDayBean>("dim_express_courier_complex") {
-                    @Override
-                    public void join(DwsTransOrgReceiveDayBean bean, JSONObject dimJsonObj) throws Exception {
-                        bean.setCourierEmpId(dimJsonObj.getString("courier_emp_id".toUpperCase()));
-                    }
-
-                    @Override
-                    public Object getCondition(DwsTransOrgReceiveDayBean bean) {
-                        String senderComplexId = bean.getComplexId();
-                        return Tuple2.of("complex_id", senderComplexId);
-                    }
-                },
-                5 * 60,
-                TimeUnit.SECONDS
-        );
-
-        // 4.2 关联机构id
+        // 关联机构id
         SingleOutputStreamOperator<DwsTransOrgReceiveDayBean> withOrgIdStream = AsyncDataStream.unorderedWait(
-                withCourierIdStream,
-                new DimAsyncFunction<DwsTransOrgReceiveDayBean>("dim_express_courier") {
+                mappedStream,
+                new DimAsyncFunction<DwsTransOrgReceiveDayBean>("dim_base_organ".toUpperCase()) {
                     @Override
                     public void join(DwsTransOrgReceiveDayBean bean, JSONObject dimJsonObj) throws Exception {
-                        bean.setOrgId(dimJsonObj.getString("org_id".toUpperCase()));
+                        bean.setOrgId(dimJsonObj.getString("id".toUpperCase()));
                     }
 
                     @Override
                     public Object getCondition(DwsTransOrgReceiveDayBean bean) {
-                        return Tuple2.of("emp_id", bean.getCourierEmpId());
+                        return Tuple2.of("region_id", bean.getDistrictId());
                     }
                 }, 5 * 60,
                 TimeUnit.SECONDS
-        );
+        ).uid("with_org_id_stream");
 
         // TODO 5. 统计揽收次数
         KeyedStream<DwsTransOrgReceiveDayBean, String> keyedByOrderIdStream = withOrgIdStream.keyBy(DwsTransOrgReceiveDayBean::getOrderId);
@@ -114,13 +98,11 @@ public class DwsTransOrgReceiveDay {
                         Boolean isCounted = isCountedState.value();
                         if (isCounted == null) {
                             bean.setReceiveOrderCountBase(1L);
-                        } else {
-                            bean.setReceiveOrderCountBase(0L);
+                            out.collect(bean);
                         }
-                        out.collect(bean);
                     }
                 }
-        );
+        ).uid("with_receive_count_stream");
 
         // TODO 6. 设置水位线
         SingleOutputStreamOperator<DwsTransOrgReceiveDayBean> withWatermarkStream = withReceiveCountStream.assignTimestampsAndWatermarks(
@@ -133,7 +115,7 @@ public class DwsTransOrgReceiveDay {
                                     }
                                 }
                         )
-        );
+        ).uid("watermark_stream");
 
         // TODO 7. 按照 orgID 分组
         KeyedStream<DwsTransOrgReceiveDayBean, String> keyedStream = withWatermarkStream.keyBy(DwsTransOrgReceiveDayBean::getOrgId);
@@ -174,17 +156,16 @@ public class DwsTransOrgReceiveDay {
                         }
                     }
                 }
-        );
+        ).uid("aggregate_stream");
 
         // TODO 11. 补充维度信息
-        // 11.1 补充转运站名称及地区ID
+        // 11.1 补充转运站名称
         SingleOutputStreamOperator<DwsTransOrgReceiveDayBean> withOrgNameStream = AsyncDataStream.unorderedWait(
                 aggregatedStream,
                 new DimAsyncFunction<DwsTransOrgReceiveDayBean>("dim_base_organ".toUpperCase()) {
                     @Override
-                    public void join(DwsTransOrgReceiveDayBean bean, JSONObject dimJsonObj) throws Exception {
+                    public void join(DwsTransOrgReceiveDayBean bean, JSONObject dimJsonObj) {
                         bean.setOrgName(dimJsonObj.getString("org_name".toUpperCase()));
-                        bean.setRegionId(dimJsonObj.getString("region_id".toUpperCase()));
                     }
 
                     @Override
@@ -193,31 +174,14 @@ public class DwsTransOrgReceiveDay {
                     }
                 },
                 60, TimeUnit.SECONDS
-        );
+        ).uid("with_org_name_stream");
 
-        // 11.2 补充地区名称
-        SingleOutputStreamOperator<DwsTransOrgReceiveDayBean> withRegionNameStream = AsyncDataStream.unorderedWait(
+        // 11.2 补充城市名称
+        SingleOutputStreamOperator<DwsTransOrgReceiveDayBean> withCityNameStream = AsyncDataStream.unorderedWait(
                 withOrgNameStream,
                 new DimAsyncFunction<DwsTransOrgReceiveDayBean>("dim_base_region_info".toUpperCase()) {
                     @Override
-                    public void join(DwsTransOrgReceiveDayBean bean, JSONObject dimJsonObj) throws Exception {
-                        bean.setRegionName(dimJsonObj.getString("name".toUpperCase()));
-                    }
-
-                    @Override
-                    public Object getCondition(DwsTransOrgReceiveDayBean bean) {
-                        return bean.getRegionId();
-                    }
-                },
-                60, TimeUnit.SECONDS
-        );
-
-        // 11.3 补充城市名称
-        SingleOutputStreamOperator<DwsTransOrgReceiveDayBean> fullStream = AsyncDataStream.unorderedWait(
-                withRegionNameStream,
-                new DimAsyncFunction<DwsTransOrgReceiveDayBean>("dim_base_region_info".toUpperCase()) {
-                    @Override
-                    public void join(DwsTransOrgReceiveDayBean bean, JSONObject dimJsonObj) throws Exception {
+                    public void join(DwsTransOrgReceiveDayBean bean, JSONObject dimJsonObj) {
                         bean.setCityName(dimJsonObj.getString("name".toUpperCase()));
                     }
 
@@ -227,13 +191,29 @@ public class DwsTransOrgReceiveDay {
                     }
                 },
                 60, TimeUnit.SECONDS
-        );
+        ).uid("with_city_name_stream");
+
+        // 11.3 补充省份名称
+        SingleOutputStreamOperator<DwsTransOrgReceiveDayBean> fullStream = AsyncDataStream.unorderedWait(
+                withCityNameStream,
+                new DimAsyncFunction<DwsTransOrgReceiveDayBean>("dim_base_region_info".toUpperCase()) {
+                    @Override
+                    public void join(DwsTransOrgReceiveDayBean bean, JSONObject dimJsonObj) {
+                        bean.setProvinceName(dimJsonObj.getString("name".toUpperCase()));
+                    }
+
+                    @Override
+                    public Object getCondition(DwsTransOrgReceiveDayBean bean) {
+                        return bean.getProvinceId();
+                    }
+                },
+                60, TimeUnit.SECONDS
+        ).uid("with_province_name_stream");
 
         // TODO 12. 写出到 ClickHouse
         fullStream.addSink(
                 ClickHouseUtil.getJdbcSink("insert into dws_trans_org_receive_day_base values(?,?,?,?,?,?,?,?,?)")
-        );
-
+        ).uid("clickhouse_stream");
 
         env.execute();
     }

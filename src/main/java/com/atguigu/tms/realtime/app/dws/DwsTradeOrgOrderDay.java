@@ -13,7 +13,6 @@ import com.atguigu.tms.realtime.util.DateFormatUtil;
 import com.atguigu.tms.realtime.util.KafkaUtil;
 import org.apache.flink.api.common.eventtime.SerializableTimestampAssigner;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
-import org.apache.flink.api.common.functions.AggregateFunction;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.state.StateTtlConfig;
 import org.apache.flink.api.common.state.ValueState;
@@ -39,20 +38,21 @@ public class DwsTradeOrgOrderDay {
         StreamExecutionEnvironment env = CreateEnvUtil.getStreamEnv(args);
 
         // 并行度设置，部署时应注释，通过 args 指定全局并行度
-        env.setParallelism(1);
+        env.setParallelism(4);
 
         // TODO 2. 从 Kafka tms_dwd_trade_order_detail 主题读取数据
         String topic = "tms_dwd_trade_order_detail";
         String groupId = "dws_trade_org_order_day";
 
         FlinkKafkaConsumer<String> kafkaConsumer = KafkaUtil.getKafkaConsumer(topic, groupId, args);
-        DataStreamSource<String> source = env.addSource(kafkaConsumer);
+        SingleOutputStreamOperator<String> source = env.addSource(kafkaConsumer)
+                .uid("kafka_source");
 
         // TODO 3. 转换数据格式
         SingleOutputStreamOperator<DwsTradeOrgOrderDayBean> mappedStream =
                 source.map(new MapFunction<String, DwsTradeOrgOrderDayBean>() {
                     @Override
-                    public DwsTradeOrgOrderDayBean map(String jsonStr) throws Exception {
+                    public DwsTradeOrgOrderDayBean map(String jsonStr) {
                         DwdTradeOrderDetailBean dwdTradeOrderDetailBean = JSON.parseObject(jsonStr, DwdTradeOrderDetailBean.class);
                         return DwsTradeOrgOrderDayBean.builder()
                                 .orderId(dwdTradeOrderDetailBean.getOrderId())
@@ -83,7 +83,7 @@ public class DwsTradeOrgOrderDay {
                 },
                 5 * 60,
                 TimeUnit.SECONDS
-        );
+        ).uid("with_courier_id_stream");
 
         // 4.2 关联机构id
         SingleOutputStreamOperator<DwsTradeOrgOrderDayBean> withOrgIdStream = AsyncDataStream.unorderedWait(
@@ -100,9 +100,9 @@ public class DwsTradeOrgOrderDay {
                     }
                 }, 5 * 60,
                 TimeUnit.SECONDS
-        );
+        ).uid("with_org_id_stream");
 
-        // TODO 5. 统计订单数
+        // TODO 5. 统计订单数和订单金额
         KeyedStream<DwsTradeOrgOrderDayBean, String> keyedByOrderIdStream =
                 withOrgIdStream.keyBy(DwsTradeOrgOrderDayBean::getOrderId);
         SingleOutputStreamOperator<DwsTradeOrgOrderDayBean> withOrderCount = keyedByOrderIdStream.process(
@@ -127,13 +127,11 @@ public class DwsTradeOrgOrderDay {
                         if (isCounted == null) {
                             bean.setOrderCountBase(1L);
                             isCountedState.update(true);
-                        } else {
-                            bean.setOrderCountBase(0L);
+                            out.collect(bean);
                         }
-                        out.collect(bean);
                     }
                 }
-        );
+        ).uid("counted_order_count_stream");
 
         // TODO 6. 设置水位线
         SingleOutputStreamOperator<DwsTradeOrgOrderDayBean> withWatermarkStream = withOrderCount.assignTimestampsAndWatermarks(WatermarkStrategy
@@ -145,7 +143,7 @@ public class DwsTradeOrgOrderDay {
                                 return element.getTs();
                             }
                         }
-                ));
+                )).uid("watermark_stream");
 
         // TODO 7. 按照机构ID分组
         KeyedStream<DwsTradeOrgOrderDayBean, String> keyedStream =
@@ -195,7 +193,7 @@ public class DwsTradeOrgOrderDay {
                         }
                     }
                 }
-        );
+        ).uid("aggregate_stream");
 
         // TODO 11. 补充维度信息
         // 11.1 关联机构信息
@@ -214,7 +212,7 @@ public class DwsTradeOrgOrderDay {
                 },
                 5 * 60,
                 TimeUnit.SECONDS
-        );
+        ).uid("with_org_name_stream");
 
         // 11.2 关联城市信息
         SingleOutputStreamOperator<DwsTradeOrgOrderDayBean> fullStream = AsyncDataStream.unorderedWait(
@@ -232,12 +230,12 @@ public class DwsTradeOrgOrderDay {
                 },
                 5 * 60,
                 TimeUnit.SECONDS
-        );
+        ).uid("with_city_name_stream");
 
         // TODO 12. 写出到 ClickHouse
         fullStream.addSink(ClickHouseUtil.<DwsTradeOrgOrderDayBean>getJdbcSink(
-                "insert into dws_trade_org_order_day_base values(?,?,?,?,?,?,?,?)"));
-
+                "insert into dws_trade_org_order_day_base values(?,?,?,?,?,?,?,?)"))
+                .uid("clickhouse_stream");
 
         env.execute();
     }

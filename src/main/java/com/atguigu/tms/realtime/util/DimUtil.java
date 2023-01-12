@@ -3,6 +3,7 @@ package com.atguigu.tms.realtime.util;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import com.atguigu.tms.realtime.common.TmsConfig;
+import com.esotericsoftware.minlog.Log;
 import org.apache.flink.api.java.tuple.Tuple2;
 import redis.clients.jedis.Jedis;
 
@@ -33,7 +34,7 @@ public class DimUtil {
             String columnName = columnNameAndValue.f0;
             String columnValue = columnNameAndValue.f1;
             selectSql.append(columnName + " = '" + columnValue + "'");
-            redisKey.append(columnValue);
+            redisKey.append(columnName + " = '" + columnValue + "'");
             if (i < columnNameAndValues.length - 1) {
                 selectSql.append(" and ");
                 redisKey.append("_");
@@ -68,7 +69,7 @@ public class DimUtil {
 
             if (dimList != null && dimList.size() > 0) {
                 // 如果集合中的元素只有一条，取第一条即可
-                // 如果集合中的元素不止一条，则说明获取的多条数据包含的所需信息相同，任取一条即可
+                // 如果集合中的元素不止一条，则获取的多条数据包含的所须信息相同（约定），任取一条即可
                 dimJsonObj = dimList.get(0);
                 //将从phoenix表中查询的数据写到Redis中
                 if (jedis != null) {
@@ -81,7 +82,7 @@ public class DimUtil {
 
         //释放资源
         if (jedis != null) {
-//            System.out.println("---关闭Jedis客户端----");
+//            Log.info("---关闭Jedis客户端----");
             jedis.close();
         }
         return dimJsonObj;
@@ -115,13 +116,15 @@ public class DimUtil {
         return dimJsonObj;
     }
 
-    public static void deleteCached(String tableName,String id){
-        String redisKey = "dim:" + tableName.toLowerCase() + ":"+id;
-
-        Jedis jedis = null;
+    /**
+     * Redis 缓存清除方法
+     * @param key Redis key
+     */
+    public static void deleteCached(String key){
+                Jedis jedis = null;
         try {
             jedis = JedisUtil.getJedis();
-            jedis.del(redisKey);
+            jedis.del(key);
         } catch (Exception e) {
             e.printStackTrace();
             throw new RuntimeException("清除Redis中缓存数据发生了异常~~~");

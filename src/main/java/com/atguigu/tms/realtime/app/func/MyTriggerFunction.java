@@ -1,6 +1,5 @@
 package com.atguigu.tms.realtime.app.func;
 
-import com.atguigu.tms.realtime.bean.DwsTransDispatchDayBean;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.streaming.api.windowing.triggers.Trigger;
@@ -29,12 +28,12 @@ public class MyTriggerFunction<T> extends Trigger<T, TimeWindow> {
     }
 
     @Override
-    public TriggerResult onProcessingTime(long time, TimeWindow window, TriggerContext ctx) throws Exception {
+    public TriggerResult onProcessingTime(long time, TimeWindow window, TriggerContext ctx) {
         return TriggerResult.CONTINUE;
     }
 
     @Override
-    public TriggerResult onEventTime(long time, TimeWindow window, TriggerContext ctx) throws Exception {
+    public TriggerResult onEventTime(long time, TimeWindow window, TriggerContext ctx) {
         long edt = window.getEnd();
         if (time < edt) {
             if (time + 10 * 1000L < edt) {
@@ -46,6 +45,6 @@ public class MyTriggerFunction<T> extends Trigger<T, TimeWindow> {
     }
 
     @Override
-    public void clear(TimeWindow window, TriggerContext ctx) throws Exception {
+    public void clear(TimeWindow window, TriggerContext ctx) {
     }
 }

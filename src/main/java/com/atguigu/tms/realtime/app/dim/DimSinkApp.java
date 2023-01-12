@@ -21,18 +21,22 @@ public class DimSinkApp {
         // TODO 1. 获取流处理环境
         StreamExecutionEnvironment env = CreateEnvUtil.getStreamEnv(args);
 
+        // 并行度设置，部署时应注释，通过 args 指定全局并行度
+        env.setParallelism(4);
+
         // TODO 2. 读取主流数据
         String topic = "tms_ods";
         String groupId = "tms_dim_sink_app";
 
         FlinkKafkaConsumer<String> kafkaConsumer = KafkaUtil.getKafkaConsumer(topic, groupId, args);
-        DataStreamSource<String> source = env.addSource(kafkaConsumer);
+        SingleOutputStreamOperator<String> source = env.addSource(kafkaConsumer)
+                .uid("kafka_source");
 
-        // TODO 3. 主流数据过滤及结构转换
+        // TODO 3. 主流数据结构转换
         SingleOutputStreamOperator<JSONObject> flatMappedStream = source.flatMap(
                 new FlatMapFunction<String, JSONObject>() {
                     @Override
-                    public void flatMap(String jsonStr, Collector<JSONObject> out) throws Exception {
+                    public void flatMap(String jsonStr, Collector<JSONObject> out) {
                         JSONObject jsonObj = JSON.parseObject(jsonStr);
 
                         String table = jsonObj.getJSONObject("source").getString("table");
@@ -47,9 +51,10 @@ public class DimSinkApp {
 
         // TODO 4. 读取配置流
         MySqlSource<String> mySqlSource = CreateEnvUtil.getJSONSchemaMysqlSource("config_dim", "6000", args);
-        DataStreamSource<String> configSource =
+        SingleOutputStreamOperator<String> configSource =
                 env.fromSource(mySqlSource, WatermarkStrategy.noWatermarks(), "mysql-source")
-                        .setParallelism(1);
+                        .setParallelism(1)
+                        .uid("broadcast_source");
 
         // TODO 5. 广播配置流
         MapStateDescriptor<String, TmsConfigDimBean> broadcastStateDescriptor =
@@ -61,7 +66,7 @@ public class DimSinkApp {
         // TODO 6. 处理连接流
         SingleOutputStreamOperator<JSONObject> processedStream = connectedStream.process(
                 new MyBroadcastFunction(args, broadcastStateDescriptor)
-        );
+        ).uid("connected_stream_process");
 
         // TODO 7. 将数据写出到 Phoenix
         processedStream.addSink(new MyPhoenixSink());

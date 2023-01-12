@@ -46,7 +46,7 @@ public class KafkaUtil {
             throw new IllegalArgumentException("GroupId cannot be null!");
         }
 
-        String offsetReset = parameterTool.get("offset-reset", "latest");
+        String offsetReset = parameterTool.get("offset-reset", "earliest");
         String bootstrapServers = parameterTool.get(
                 "bootstrap-servers", "hadoop102:9092,hadoop103:9092,hadoop104:9092");
 
@@ -67,7 +67,7 @@ public class KafkaUtil {
                     }
 
                     @Override
-                    public String deserialize(ConsumerRecord<byte[], byte[]> record) throws Exception {
+                    public String deserialize(ConsumerRecord<byte[], byte[]> record) {
                         if (record != null && record.value() != null) {
                             return new String(record.value());
                         }

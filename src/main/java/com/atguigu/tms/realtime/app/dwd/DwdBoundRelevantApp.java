@@ -11,7 +11,6 @@ import com.atguigu.tms.realtime.util.DateFormatUtil;
 import com.atguigu.tms.realtime.util.KafkaUtil;
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.streaming.api.datastream.DataStream;
-import org.apache.flink.streaming.api.datastream.DataStreamSource;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.ProcessFunction;
@@ -32,7 +31,8 @@ public class DwdBoundRelevantApp {
         String topic = "tms_ods";
         String groupId = "dwd_bound_relevant_app";
         FlinkKafkaConsumer<String> kafkaConsumer = KafkaUtil.getKafkaConsumer(topic, groupId, args);
-        DataStreamSource<String> source = env.addSource(kafkaConsumer);
+        SingleOutputStreamOperator<String> source =
+                env.addSource(kafkaConsumer).uid("kafka-source");
 
         // TODO 3. 筛选中转相关数据
         SingleOutputStreamOperator<String> filteredStream = source.filter(
@@ -52,7 +52,7 @@ public class DwdBoundRelevantApp {
         OutputTag<String> outBoundTag = new OutputTag<String>("dwd_bound_out_bound") {
         };
 
-        // TODO 5. 转换数据结构并分流
+        // TODO 5. 分流
         SingleOutputStreamOperator<String> processedStream = filteredStream.process(
                 new ProcessFunction<String, String>() {
                     @Override
@@ -112,7 +112,7 @@ public class DwdBoundRelevantApp {
                                     context.output(sortTag, JSON.toJSONString(sortBean));
                                 }
 
-                                // 筛选出站操作
+                                // 筛选出库操作
                                 String oldOutboundTime = before.getOutboundTime();
                                 String outboundTime = after.getOutboundTime();
                                 if (oldOutboundTime == null
@@ -144,7 +144,7 @@ public class DwdBoundRelevantApp {
         // TODO 6. 提取侧输出流
         // 6.1 提取分拣流
         DataStream<String> sortStream = processedStream.getSideOutput(sortTag);
-        // 6.2 提取出站流
+        // 6.2 提取出库流
         DataStream<String> outboundStream = processedStream.getSideOutput(outBoundTag);
 
         // TODO 7. 写出到 Kafka 指定主题
@@ -159,9 +159,15 @@ public class DwdBoundRelevantApp {
         FlinkKafkaProducer<String> sortProducer = KafkaUtil.getKafkaProducer(sortTopic, args);
         FlinkKafkaProducer<String> outboundProducer = KafkaUtil.getKafkaProducer(outboundTopic, args);
 
-        processedStream.addSink(inboundProducer);
-        sortStream.addSink(sortProducer);
-        outboundStream.addSink(outboundProducer);
+        processedStream
+                .addSink(inboundProducer)
+                .uid("inbound_producer");
+        sortStream
+                .addSink(sortProducer)
+                .uid("sort_producer");
+        outboundStream
+                .addSink(outboundProducer)
+                .uid("outbound_prducer");
 
         env.execute();
     }

@@ -29,13 +29,16 @@ public class DwsBoundOrgSortDay {
     public static void main(String[] args) throws Exception {
         // TODO 1. 环境准备
         StreamExecutionEnvironment env = CreateEnvUtil.getStreamEnv(args);
+
+        // 并行度设置，部署时应注释，通过 args 指定全局并行度
         env.setParallelism(4);
 
         // TODO 2. 从 Kafka tms_dwd_bound_sort 主题读取数据
         String topic = "tms_dwd_bound_sort";
         String groupId = "dws_bound_org_sort_day";
         FlinkKafkaConsumer<String> kafkaConsumer = KafkaUtil.getKafkaConsumer(topic, groupId, args);
-        DataStreamSource<String> source = env.addSource(kafkaConsumer);
+        SingleOutputStreamOperator<String> source = env.addSource(kafkaConsumer)
+                .uid("kafka_source");
 
         // TODO 3. 转换数据结构
         SingleOutputStreamOperator<DwsBoundOrgSortDayBean> mappedStream = source.map(jsonStr -> {
@@ -56,7 +59,7 @@ public class DwsBoundOrgSortDay {
                                 return element.getTs();
                             }
                         })
-        );
+        ).uid("watermark_stream");
 
         // TODO 5. 按照机构 ID 分组
         KeyedStream<DwsBoundOrgSortDayBean, String> keyedStream = withWatermarkStream.keyBy(DwsBoundOrgSortDayBean::getOrgId);
@@ -71,28 +74,29 @@ public class DwsBoundOrgSortDay {
 
         // TODO 8. 聚合
         SingleOutputStreamOperator<DwsBoundOrgSortDayBean> aggregatedStream = triggerStream.aggregate(
-                new MyAggregationFunction<DwsBoundOrgSortDayBean>() {
-                    @Override
-                    public DwsBoundOrgSortDayBean add(DwsBoundOrgSortDayBean value, DwsBoundOrgSortDayBean accumulator) {
-                        if (accumulator == null) {
-                            return value;
+                        new MyAggregationFunction<DwsBoundOrgSortDayBean>() {
+                            @Override
+                            public DwsBoundOrgSortDayBean add(DwsBoundOrgSortDayBean value, DwsBoundOrgSortDayBean accumulator) {
+                                if (accumulator == null) {
+                                    return value;
+                                }
+                                accumulator.setSortCountBase(accumulator.getSortCountBase() + 1);
+                                return accumulator;
+                            }
+                        },
+                        new ProcessWindowFunction<DwsBoundOrgSortDayBean, DwsBoundOrgSortDayBean, String, TimeWindow>() {
+                            @Override
+                            public void process(String key, Context context, Iterable<DwsBoundOrgSortDayBean> elements, Collector<DwsBoundOrgSortDayBean> out) throws Exception {
+                                for (DwsBoundOrgSortDayBean element : elements) {
+                                    long stt = context.window().getStart();
+                                    element.setCurDate(DateFormatUtil.toDate(stt - 8 * 60 * 60 * 1000L));
+                                    element.setTs(System.currentTimeMillis());
+                                    out.collect(element);
+                                }
+                            }
                         }
-                        accumulator.setSortCountBase(accumulator.getSortCountBase() + 1);
-                        return accumulator;
-                    }
-                },
-                new ProcessWindowFunction<DwsBoundOrgSortDayBean, DwsBoundOrgSortDayBean, String, TimeWindow>() {
-                    @Override
-                    public void process(String key, Context context, Iterable<DwsBoundOrgSortDayBean> elements, Collector<DwsBoundOrgSortDayBean> out) throws Exception {
-                        for (DwsBoundOrgSortDayBean element : elements) {
-                            long stt = context.window().getStart();
-                            element.setCurDate(DateFormatUtil.toDate(stt - 8 * 60 * 60 * 1000L));
-                            element.setTs(System.currentTimeMillis());
-                            out.collect(element);
-                        }
-                    }
-                }
-        );
+                )
+                .uid("aggregate_stream");
 
         // TODO 9. 关联维度信息
         // 9.1 获取机构名称及用于关联获取城市 ID 的机构 ID
@@ -100,7 +104,7 @@ public class DwsBoundOrgSortDay {
                 aggregatedStream,
                 new DimAsyncFunction<DwsBoundOrgSortDayBean>("dim_base_organ".toUpperCase()) {
                     @Override
-                    public void join(DwsBoundOrgSortDayBean bean, JSONObject dimJsonObj) throws Exception {
+                    public void join(DwsBoundOrgSortDayBean bean, JSONObject dimJsonObj) {
                         // 获取上级机构 ID
                         String orgParentId = dimJsonObj.getString("org_parent_id".toUpperCase());
                         bean.setOrgName(dimJsonObj.getString("org_name".toUpperCase()));
@@ -113,14 +117,14 @@ public class DwsBoundOrgSortDay {
                     }
                 },
                 60, TimeUnit.SECONDS
-        );
+        ).uid("with_org_name_stream");
 
         // 9.2 获取城市 ID
         SingleOutputStreamOperator<DwsBoundOrgSortDayBean> withCityIdStream = AsyncDataStream.unorderedWait(
                 withOrgNameStream,
                 new DimAsyncFunction<DwsBoundOrgSortDayBean>("dim_base_organ".toUpperCase()) {
                     @Override
-                    public void join(DwsBoundOrgSortDayBean bean, JSONObject dimJsonObj) throws Exception {
+                    public void join(DwsBoundOrgSortDayBean bean, JSONObject dimJsonObj) {
                         bean.setCityId(dimJsonObj.getString("region_id".toUpperCase()));
                     }
 
@@ -130,7 +134,7 @@ public class DwsBoundOrgSortDay {
                     }
                 },
                 60, TimeUnit.SECONDS
-        );
+        ).uid("with_city_id_stream");
 
         // 9.3 获取城市名称及省份 ID
         SingleOutputStreamOperator<DwsBoundOrgSortDayBean> withCityNameStream = AsyncDataStream.unorderedWait(
@@ -148,7 +152,7 @@ public class DwsBoundOrgSortDay {
                     }
                 },
                 60, TimeUnit.SECONDS
-        );
+        ).uid("with_city_name_stream");
 
         // 9.4 获取省份名称
         SingleOutputStreamOperator<DwsBoundOrgSortDayBean> fullStream = AsyncDataStream.unorderedWait(
@@ -165,12 +169,12 @@ public class DwsBoundOrgSortDay {
                     }
                 },
                 60, TimeUnit.SECONDS
-        );
+        ).uid("with_province_name_stream");
 
         // TODO 10. 写出到 ClickHouse
         fullStream.addSink(
                 ClickHouseUtil.getJdbcSink("insert into dws_bound_org_sort_day_base values(?,?,?,?,?,?,?,?,?)")
-        );
+        ).uid("clickhouse_sink");
 
         env.execute();
     }

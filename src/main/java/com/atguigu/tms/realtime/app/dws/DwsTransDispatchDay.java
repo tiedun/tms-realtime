@@ -11,14 +11,12 @@ import com.atguigu.tms.realtime.util.DateFormatUtil;
 import com.atguigu.tms.realtime.util.KafkaUtil;
 import org.apache.flink.api.common.eventtime.SerializableTimestampAssigner;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
-import org.apache.flink.api.common.functions.AggregateFunction;
 import org.apache.flink.api.common.state.StateTtlConfig;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.common.time.Time;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.datastream.AllWindowedStream;
-import org.apache.flink.streaming.api.datastream.DataStreamSource;
 import org.apache.flink.streaming.api.datastream.KeyedStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
@@ -35,6 +33,8 @@ public class DwsTransDispatchDay {
     public static void main(String[] args) throws Exception {
         // TODO 1. 环境准备
         StreamExecutionEnvironment env = CreateEnvUtil.getStreamEnv(args);
+
+        // 并行度设置，部署时应注释，通过 args 指定全局并行度
         env.setParallelism(4);
 
         // TODO 2. 从 Kafka tms_dwd_trans_dispatch_detail 主题读取数据
@@ -42,7 +42,8 @@ public class DwsTransDispatchDay {
         String groupId = "dws_trans_dispatch_day";
 
         FlinkKafkaConsumer<String> kafkaConsumer = KafkaUtil.getKafkaConsumer(topic, groupId, args);
-        DataStreamSource<String> source = env.addSource(kafkaConsumer);
+        SingleOutputStreamOperator<String> source = env.addSource(kafkaConsumer)
+                .uid("kafka_source");
 
         // TODO 3. 转换数据结构
         SingleOutputStreamOperator<DwsTransDispatchDayBean> mappedStream = source.map(jsonStr -> {
@@ -80,7 +81,7 @@ public class DwsTransDispatchDay {
                         out.collect(bean);
                     }
                 }
-        );
+        ).uid("counted_order_count_stream");
 
         // TODO 5. 设置水位线
         SingleOutputStreamOperator<DwsTransDispatchDayBean> withWatermarkStream = processedStream.assignTimestampsAndWatermarks(
@@ -91,7 +92,7 @@ public class DwsTransDispatchDay {
                                 return element.getTs();
                             }
                         })
-        );
+        ).uid("watermark_stream");
 
         // TODO 6. 开窗
         AllWindowedStream<DwsTransDispatchDayBean, TimeWindow> windowedStream =
@@ -130,12 +131,12 @@ public class DwsTransDispatchDay {
                         }
                     }
                 }
-        );
+        ).uid("aggregate_stream");
 
         // TODO 9. 写出到 ClickHouse
         aggregatedStream.addSink(
                 ClickHouseUtil.getJdbcSink("insert into dws_trans_dispatch_day_base values(?,?,?)")
-        );
+        ).uid("clickhouse_stream");
 
         env.execute();
     }

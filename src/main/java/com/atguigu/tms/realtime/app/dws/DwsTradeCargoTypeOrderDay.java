@@ -13,7 +13,6 @@ import com.atguigu.tms.realtime.util.DateFormatUtil;
 import com.atguigu.tms.realtime.util.KafkaUtil;
 import org.apache.flink.api.common.eventtime.SerializableTimestampAssigner;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
-import org.apache.flink.api.common.functions.AggregateFunction;
 import org.apache.flink.api.common.state.StateTtlConfig;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
@@ -36,13 +35,15 @@ public class DwsTradeCargoTypeOrderDay {
         // TODO 1. 环境准备
         StreamExecutionEnvironment env = CreateEnvUtil.getStreamEnv(args);
 
-        env.setParallelism(1);
+        // 并行度设置，部署时应注释，通过 args 指定全局并行度
+        env.setParallelism(4);
 
         // TODO 2. 从 Kafka 指定主题消费数据
         String topic = "tms_dwd_trade_order_detail";
         String groupId = "dws_trade_cargo_type_order_day";
         FlinkKafkaConsumer<String> kafkaConsumer = KafkaUtil.getKafkaConsumer(topic, groupId, args);
-        DataStreamSource<String> source = env.addSource(kafkaConsumer);
+        SingleOutputStreamOperator<String> source = env.addSource(kafkaConsumer)
+                .uid("kafka_source");
 
         // TODO 3. 转换数据结构
         SingleOutputStreamOperator<DwsTradeCargoTypeOrderDayBean> mappedStream = source.map(jsonStr -> {
@@ -55,11 +56,11 @@ public class DwsTradeCargoTypeOrderDay {
                     .build();
         });
 
-        // TODO 4. 统计订单数
+        // TODO 4. 统计订单数和订单金额
         // 4.1 按照订单 ID 分组
         KeyedStream<DwsTradeCargoTypeOrderDayBean, String> keyedStream = mappedStream.keyBy(DwsTradeCargoTypeOrderDayBean::getOrderId);
 
-        // 4.2 统计订单数
+        // 4.2 统计订单数和订单金额
         SingleOutputStreamOperator<DwsTradeCargoTypeOrderDayBean> processedStream = keyedStream.process(
                 new KeyedProcessFunction<String, DwsTradeCargoTypeOrderDayBean, DwsTradeCargoTypeOrderDayBean>() {
 
@@ -81,13 +82,11 @@ public class DwsTradeCargoTypeOrderDay {
                         if (isCounted == null) {
                             bean.setOrderCountBase(1L);
                             isCountedState.update(true);
-                        } else {
-                            bean.setOrderCountBase(0L);
+                            out.collect(bean);
                         }
-                        out.collect(bean);
                     }
                 }
-        );
+        ).uid("count_order_count_stream");
 
         // TODO 5. 设置水位线
         SingleOutputStreamOperator<DwsTradeCargoTypeOrderDayBean> withWatermarkStream = processedStream.assignTimestampsAndWatermarks(
@@ -99,7 +98,7 @@ public class DwsTradeCargoTypeOrderDay {
                             }
                         })
 
-        );
+        ).uid("watermark_stream");
 
         // TODO 6. 按照货物类别分组
         KeyedStream<DwsTradeCargoTypeOrderDayBean, String> keyedByCargoTypeStream = withWatermarkStream.keyBy(DwsTradeCargoTypeOrderDayBean::getCargoType);
@@ -140,7 +139,7 @@ public class DwsTradeCargoTypeOrderDay {
                         }
                     }
                 }
-        );
+        ).uid("aggregate_stream");
 
         // TODO 10. 补充货物类型字段
         SingleOutputStreamOperator<DwsTradeCargoTypeOrderDayBean> fullStream = AsyncDataStream.unorderedWait(aggregatedStream,
@@ -155,12 +154,12 @@ public class DwsTradeCargoTypeOrderDay {
                         return bean.getCargoType();
                     }
                 }, 5 * 60L,
-                TimeUnit.SECONDS);
+                TimeUnit.SECONDS).uid("with_cargo_type_name_stream");
 
         // TODO 11. 写入 ClickHouse
         fullStream.addSink(ClickHouseUtil.getJdbcSink(
                 "insert into dws_trade_cargo_type_order_day_base values(?,?,?,?,?,?)"
-        ));
+        )).uid("clickhouse_sink");
 
 
         env.execute();

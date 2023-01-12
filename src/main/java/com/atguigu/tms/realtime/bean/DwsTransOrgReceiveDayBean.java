@@ -14,14 +14,6 @@ public class DwsTransOrgReceiveDayBean {
     @TransientSink
     String orderId;
 
-    // 小区ID
-    @TransientSink
-    String complexId;
-
-    // 快递员ID
-    @TransientSink
-    String courierEmpId;
-
     // 转运站ID
     String orgId;
 
@@ -29,16 +21,20 @@ public class DwsTransOrgReceiveDayBean {
     String orgName;
 
     // 地区ID
-    String regionId;
-
-    // 地区名称
-    String regionName;
+    @TransientSink
+    String districtId;
 
     // 城市ID
     String cityId;
 
     // 城市名称
     String cityName;
+
+    // 省份ID
+    String provinceId;
+
+    // 省份名称
+    String provinceName;
 
     // 揽收次数（一个订单算一次）
     Long receiveOrderCountBase;

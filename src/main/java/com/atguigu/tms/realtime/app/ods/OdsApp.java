@@ -29,12 +29,12 @@ public class OdsApp {
         // env.disableOperatorChaining();
 
         // TODO 2. 处理离线维度数据
-        String offlineDimOption = "offline_dim";
-        String offlineDimServerId = "6020";
-        String offlineDimSourceName = "ods_offline_dim_source";
-        sinkToKafka(offlineDimOption, offlineDimServerId, offlineDimSourceName, env, args);
+//        String offlineDimOption = "offline_dim";
+//        String offlineDimServerId = "6020";
+//        String offlineDimSourceName = "ods_offline_dim_source";
+//        sinkToKafka(offlineDimOption, offlineDimServerId, offlineDimSourceName, env, args);
 
-        // TODO 3. 处理事实数据（离线实时共用）
+        // TODO 2. 处理事实数据（离线实时共用）
         String dwdOption = "dwd";
         String dwdServerId = "6030";
         String dwdSourceName = "ods_dwd_source";
@@ -72,7 +72,6 @@ public class OdsApp {
                                 jsonObj.put("ts", tsMs);
                                 out.collect(jsonObj.toJSONString());
                             }
-
                         } catch (JSONException jsonException) {
                             jsonException.printStackTrace();
                             Log.error("从Flink-CDC读取的数据解析异常" + jsonException.getMessage());

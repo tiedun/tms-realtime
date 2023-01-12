@@ -122,22 +122,8 @@ public class PhoenixUtil {
                     e.printStackTrace();
                 }
             }
-            if (ps != null) {
-                try {
-                    ps.close();
-                } catch (SQLException e) {
-                    e.printStackTrace();
-                }
-            }
-            if (conn != null) {
-                try {
-                    conn.close();
-                } catch (SQLException e) {
-                    e.printStackTrace();
-                }
-            }
+            close(ps, conn);
         }
         return resList;
     }
-
 }

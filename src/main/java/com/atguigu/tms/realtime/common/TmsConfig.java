@@ -1,9 +1,5 @@
 package com.atguigu.tms.realtime.common;
 
-/**
- * description:
- * Created by 铁盾 on 2022/11/8
- */
 public class TmsConfig {
     // Phoenix库名
     public static final String HBASE_SCHEMA = "TMS_REALTIME";
