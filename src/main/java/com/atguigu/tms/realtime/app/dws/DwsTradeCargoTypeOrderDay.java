@@ -18,13 +18,13 @@ import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.common.time.Time;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.streaming.api.datastream.*;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
 import org.apache.flink.streaming.api.functions.windowing.ProcessWindowFunction;
 import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
-import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer;
 import org.apache.flink.util.Collector;
 
 import java.time.Duration;
@@ -41,8 +41,9 @@ public class DwsTradeCargoTypeOrderDay {
         // TODO 2. 从 Kafka 指定主题消费数据
         String topic = "tms_dwd_trade_order_detail";
         String groupId = "dws_trade_cargo_type_order_day";
-        FlinkKafkaConsumer<String> kafkaConsumer = KafkaUtil.getKafkaConsumer(topic, groupId, args);
-        SingleOutputStreamOperator<String> source = env.addSource(kafkaConsumer)
+        KafkaSource<String> kafkaConsumer = KafkaUtil.getKafkaConsumer(topic, groupId, args);
+        SingleOutputStreamOperator<String> source = env
+                .fromSource(kafkaConsumer, WatermarkStrategy.noWatermarks(), "kafka_source")
                 .uid("kafka_source");
 
         // TODO 3. 转换数据结构

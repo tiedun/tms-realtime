@@ -5,19 +5,20 @@ import com.alibaba.fastjson.JSONObject;
 import com.atguigu.tms.realtime.bean.*;
 import com.atguigu.tms.realtime.util.CreateEnvUtil;
 import com.atguigu.tms.realtime.util.KafkaUtil;
+import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.state.*;
 import org.apache.flink.api.common.time.Time;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.connector.kafka.sink.KafkaSink;
+import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.KeyedStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
-import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer;
-import org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
 
@@ -32,8 +33,9 @@ public class DwdOrderRelevantApp {
         // TODO 2. 读取事实数据
         String topic = "tms_ods";
         String groupId = "dwd_order_relevant_app";
-        FlinkKafkaConsumer<String> kafkaConsumer = KafkaUtil.getKafkaConsumer(topic, groupId, args);
-        SingleOutputStreamOperator<String> source = env.addSource(kafkaConsumer)
+        KafkaSource<String> kafkaConsumer = KafkaUtil.getKafkaConsumer(topic, groupId, args);
+        SingleOutputStreamOperator<String> source = env
+                .fromSource(kafkaConsumer, WatermarkStrategy.noWatermarks(), "kafka_source")
                 .uid("kafka_source");
 
         // TODO 3. 筛选运单和运单明细数据
@@ -282,52 +284,51 @@ public class DwdOrderRelevantApp {
 
         // 9.2 发送数据到 Kafka
         // 9.2.1 运单明细数据
-        FlinkKafkaProducer<String> kafkaProducer = KafkaUtil.getKafkaProducer(detailTopic, args);
+        KafkaSink<String> kafkaProducer = KafkaUtil.getKafkaProducer(detailTopic, args);
         processedStream
-                .addSink(kafkaProducer)
+                .sinkTo(kafkaProducer)
                 .uid("order_detail_sink");
 
         // 9.2.2 支付成功明细数据
-        FlinkKafkaProducer<String> paySucKafkaProducer = KafkaUtil.getKafkaProducer(paySucDetailTopic, args);
+        KafkaSink<String> paySucKafkaProducer = KafkaUtil.getKafkaProducer(paySucDetailTopic, args);
         paySucStream
-                .addSink(paySucKafkaProducer)
+                .sinkTo(paySucKafkaProducer)
                 .uid("pay_suc_detail_sink");
 
         // 9.2.3 取消运单明细数据
-        FlinkKafkaProducer<String> cancelKafkaProducer = KafkaUtil.getKafkaProducer(cancelDetailTopic, args);
+        KafkaSink<String> cancelKafkaProducer = KafkaUtil.getKafkaProducer(cancelDetailTopic, args);
         cancelDetailStream
-                .addSink(cancelKafkaProducer)
+                .sinkTo(cancelKafkaProducer)
                 .uid("cancel_detail_sink");
 
         // 9.2.4 揽收明细数据
-        FlinkKafkaProducer<String> receiveKafkaProducer = KafkaUtil.getKafkaProducer(receiveDetailTopic, args);
+        KafkaSink<String> receiveKafkaProducer = KafkaUtil.getKafkaProducer(receiveDetailTopic, args);
         receiveDetailStream
-                .addSink(receiveKafkaProducer)
+                .sinkTo(receiveKafkaProducer)
                 .uid("reveive_detail_sink");
 
         // 9.2.5 发单明细数据
-        FlinkKafkaProducer<String> dispatchKafkaProducer = KafkaUtil.getKafkaProducer(dispatchDetailTopic, args);
+        KafkaSink<String> dispatchKafkaProducer = KafkaUtil.getKafkaProducer(dispatchDetailTopic, args);
         dispatchDetailStream
-                .addSink(dispatchKafkaProducer)
+                .sinkTo(dispatchKafkaProducer)
                 .uid("dispatch_detail_sink");
 
         // 9.2.6 转运完成明细主题
-        FlinkKafkaProducer<String> boundFinishKafkaProducer = KafkaUtil.getKafkaProducer(boundFinishDetailTopic, args);
+        KafkaSink<String> boundFinishKafkaProducer = KafkaUtil.getKafkaProducer(boundFinishDetailTopic, args);
         boundFinishDetailStream
-                .addSink(boundFinishKafkaProducer)
+                .sinkTo(boundFinishKafkaProducer)
                 .uid("bound_finish_detail_sink");
 
-
         // 9.2.7 派送成功明细数据
-        FlinkKafkaProducer<String> deliverSucKafkaProducer = KafkaUtil.getKafkaProducer(deliverSucDetailTopic, args);
+        KafkaSink<String> deliverSucKafkaProducer = KafkaUtil.getKafkaProducer(deliverSucDetailTopic, args);
         deliverSucDetailStream
-                .addSink(deliverSucKafkaProducer)
+                .sinkTo(deliverSucKafkaProducer)
                 .uid("deliver_suc_detail_sink");
 
         // 9.2.8 签收明细数据
-        FlinkKafkaProducer<String> signKafkaProducer = KafkaUtil.getKafkaProducer(signDetailTopic, args);
+        KafkaSink<String> signKafkaProducer = KafkaUtil.getKafkaProducer(signDetailTopic, args);
         signDetailStream
-                .addSink(signKafkaProducer)
+                .sinkTo(signKafkaProducer)
                 .uid("sign_detail_sink");
 
         env.execute();

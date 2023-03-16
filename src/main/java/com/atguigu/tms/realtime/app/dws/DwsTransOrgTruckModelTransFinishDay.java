@@ -13,13 +13,13 @@ import com.atguigu.tms.realtime.util.DateFormatUtil;
 import com.atguigu.tms.realtime.util.KafkaUtil;
 import org.apache.flink.api.common.eventtime.SerializableTimestampAssigner;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
+import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.streaming.api.datastream.*;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.windowing.ProcessWindowFunction;
 import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
 import org.apache.flink.streaming.api.windowing.time.Time;
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
-import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer;
 import org.apache.flink.util.Collector;
 
 import java.time.Duration;
@@ -36,8 +36,9 @@ public class DwsTransOrgTruckModelTransFinishDay {
         // TODO 2. 从 Kafka tms_dwd_trans_trans_finish 主题读取数据
         String topic = "tms_dwd_trans_trans_finish";
         String groupId = "dws_trans_org_truck_model_trans_finish_day";
-        FlinkKafkaConsumer<String> kafkaConsumer = KafkaUtil.getKafkaConsumer(topic, groupId, args);
-        SingleOutputStreamOperator<String> source = env.addSource(kafkaConsumer)
+        KafkaSource<String> kafkaConsumer = KafkaUtil.getKafkaConsumer(topic, groupId, args);
+        SingleOutputStreamOperator<String> source = env
+                .fromSource(kafkaConsumer, WatermarkStrategy.noWatermarks(), "kafka_source")
                 .uid("kafka_source");
 
         // TODO 3. 转换数据结构

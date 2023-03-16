@@ -1,29 +1,20 @@
 package com.atguigu.tms.realtime.util;
 
-import com.alibaba.fastjson.JSON;
-import com.alibaba.fastjson.JSONObject;
-import com.esotericsoftware.minlog.Log;
+import org.apache.flink.api.common.serialization.DeserializationSchema;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.utils.ParameterTool;
-import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer;
-import org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer;
-import org.apache.flink.streaming.connectors.kafka.KafkaDeserializationSchema;
-import org.apache.flink.streaming.connectors.kafka.KafkaSerializationSchema;
+import org.apache.flink.connector.base.DeliveryGuarantee;
+import org.apache.flink.connector.kafka.sink.KafkaRecordSerializationSchema;
+import org.apache.flink.connector.kafka.sink.KafkaSink;
+import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
-import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.producer.ProducerConfig;
-import org.apache.kafka.clients.producer.ProducerRecord;
 
-import javax.annotation.Nullable;
+import java.io.IOException;
 import java.util.Properties;
 
-import static org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer.Semantic.EXACTLY_ONCE;
-
 public class KafkaUtil {
-
-    private static final String DEFAULT_TOPIC = "default_topic";
-
     /**
      * 指定主题和消费者组获取 FlinkKafkaConsumer 对象
      *
@@ -32,7 +23,7 @@ public class KafkaUtil {
      * @param args    命令行参数数组
      * @return FlinkKafkaConsumer 实例
      */
-    public static FlinkKafkaConsumer<String> getKafkaConsumer(String topic, String groupId, String[] args) {
+    public static KafkaSource<String> getKafkaConsumer(String topic, String groupId, String[] args) {
         Properties consumerProp = new Properties();
         ParameterTool parameterTool = ParameterTool.fromArgs(args);
         topic = parameterTool.get("topic", topic);
@@ -46,40 +37,40 @@ public class KafkaUtil {
             throw new IllegalArgumentException("GroupId cannot be null!");
         }
 
-        String offsetReset = parameterTool.get("offset-reset", "earliest");
+        String offsetReset = parameterTool.get("offset-reset", "latest");
         String bootstrapServers = parameterTool.get(
                 "bootstrap-servers", "hadoop102:9092,hadoop103:9092,hadoop104:9092");
 
         consumerProp.setProperty(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         consumerProp.setProperty(ConsumerConfig.GROUP_ID_CONFIG, groupId);
-        consumerProp.setProperty(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG,
-                "org.apache.kafka.common.serialization.StringDeserializer");
         consumerProp.setProperty(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG,
                 "org.apache.kafka.common.serialization.StringDeserializer");
         consumerProp.setProperty(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG,
                 offsetReset);
 
-        return new FlinkKafkaConsumer<String>(topic,
-                new KafkaDeserializationSchema<String>() {
+        return KafkaSource.<String>builder()
+                .setTopics(topic)
+                .setProperties(consumerProp)
+                .setValueOnlyDeserializer(new DeserializationSchema<String>() {
                     @Override
-                    public boolean isEndOfStream(String nextElement) {
-                        return false;
+                    public String deserialize(byte[] bytes) throws IOException {
+                        if (bytes != null && bytes.length != 0) {
+                            return new String(bytes);
+                        }
+                        return null;
                     }
 
                     @Override
-                    public String deserialize(ConsumerRecord<byte[], byte[]> record) {
-                        if (record != null && record.value() != null) {
-                            return new String(record.value());
-                        }
-                        return null;
+                    public boolean isEndOfStream(String s) {
+                        return false;
                     }
 
                     @Override
                     public TypeInformation<String> getProducedType() {
                         return TypeInformation.of(String.class);
                     }
-                },
-                consumerProp);
+                })
+                .build();
     }
 
     /**
@@ -89,7 +80,7 @@ public class KafkaUtil {
      * @param args  命令行参数数组
      * @return FlinkKafkaProducer 实例
      */
-    public static FlinkKafkaProducer<String> getKafkaProducer(String topic, String[] args) {
+    public static KafkaSink<String> getKafkaProducer(String topic, String[] args, String transId) {
         // 创建配置对象
         Properties producerProp = new Properties();
         // 将命令行参数对象封装为 ParameterTool 类对象
@@ -115,17 +106,21 @@ public class KafkaUtil {
         producerProp.setProperty(ProducerConfig.TRANSACTION_TIMEOUT_CONFIG, transactionTimeout);
 
         // 内部类中使用但未声明的局部变量必须在内部类代码段之前明确分配
-        String finalTopic = topic;
-        return new FlinkKafkaProducer<String>(
-                DEFAULT_TOPIC,
-                new KafkaSerializationSchema<String>() {
-                    @Override
-                    public ProducerRecord<byte[], byte[]> serialize(String jsonStr, @Nullable Long timestamp) {
-                        return new ProducerRecord<byte[], byte[]>(finalTopic, jsonStr.getBytes());
-                    }
-                },
-                producerProp,
-                EXACTLY_ONCE);
+        return KafkaSink.<String>builder()
+                .setRecordSerializer(KafkaRecordSerializationSchema.builder()
+                        .setTopic(topic)
+                        .setValueSerializationSchema(new SimpleStringSchema())
+                        .build())
+                //指定生产的精准一次性
+                .setDeliveryGuarantee(DeliveryGuarantee.EXACTLY_ONCE)
+                .setKafkaProducerConfig(producerProp)
+                // 如果指定语义为精准一次，那么每一个数据流向 kakfa 写入时，都会生成一个 transId。默认情况下 transId 的生成规则相同，会冲突，我们这里指定前缀进行区分
+                .setTransactionalIdPrefix(transId)
+                .build();
+    }
+
+    public static KafkaSink<String> getKafkaProducer(String topic, String[] args) {
+        return getKafkaProducer(topic, args, topic + "_trans");
     }
 
     /**
@@ -134,8 +129,8 @@ public class KafkaUtil {
      * @param args 命令行参数数组
      * @return FlinkKafkaProducer 实例
      */
-    public static <T> FlinkKafkaProducer<T> getKafkaProducerBySchema(
-            KafkaSerializationSchema<T> kafkaSerializationSchema, String[] args) {
+    public static <T> KafkaSink<T> getKafkaProducerBySchema(
+            KafkaRecordSerializationSchema<T> kafkaRecordSerializationSchema, String[] args, String transId) {
         ParameterTool parameterTool = ParameterTool.fromArgs(args);
         Properties producerProp = new Properties();
 
@@ -150,11 +145,13 @@ public class KafkaUtil {
                 "org.apache.common.serialization.kafka.ByteArraySerializer");
         producerProp.setProperty(ProducerConfig.TRANSACTION_TIMEOUT_CONFIG, transactionTimeout);
 
-        return new FlinkKafkaProducer<T>(DEFAULT_TOPIC, kafkaSerializationSchema, producerProp, EXACTLY_ONCE);
-    }
-
-    public static String getUpsertKafkaDDL(String[] args) {
-
-        return null;
+        return KafkaSink.<T>builder()
+                .setRecordSerializer(kafkaRecordSerializationSchema)
+                .setKafkaProducerConfig(producerProp)
+                //指定生产的精准一次性
+                .setDeliveryGuarantee(DeliveryGuarantee.EXACTLY_ONCE)
+                //如果生产的精准一次性消费   那么每一个流数据在做向kakfa写入的时候  都会生成一个transId，默认名字生成规则相同，会冲突，我们这里指定前缀进行区分
+                .setTransactionalIdPrefix(transId)
+                .build();
     }
 }

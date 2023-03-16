@@ -19,6 +19,7 @@ import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.streaming.api.datastream.*;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
@@ -26,7 +27,6 @@ import org.apache.flink.streaming.api.functions.windowing.ProcessWindowFunction;
 import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
 import org.apache.flink.streaming.api.windowing.time.Time;
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
-import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer;
 import org.apache.flink.util.Collector;
 
 import java.time.Duration;
@@ -44,8 +44,9 @@ public class DwsTradeOrgOrderDay {
         String topic = "tms_dwd_trade_order_detail";
         String groupId = "dws_trade_org_order_day";
 
-        FlinkKafkaConsumer<String> kafkaConsumer = KafkaUtil.getKafkaConsumer(topic, groupId, args);
-        SingleOutputStreamOperator<String> source = env.addSource(kafkaConsumer)
+        KafkaSource<String> kafkaConsumer = KafkaUtil.getKafkaConsumer(topic, groupId, args);
+        SingleOutputStreamOperator<String> source = env
+                .fromSource(kafkaConsumer, WatermarkStrategy.noWatermarks(), "kafka_source")
                 .uid("kafka_source");
 
         // TODO 3. 转换数据格式
@@ -56,7 +57,7 @@ public class DwsTradeOrgOrderDay {
                         DwdTradeOrderDetailBean dwdTradeOrderDetailBean = JSON.parseObject(jsonStr, DwdTradeOrderDetailBean.class);
                         return DwsTradeOrgOrderDayBean.builder()
                                 .orderId(dwdTradeOrderDetailBean.getOrderId())
-                                .complexId(dwdTradeOrderDetailBean.getSenderComplexId())
+                                .senderDistrictId(dwdTradeOrderDetailBean.getSenderDistrictId())
                                 .cityId(dwdTradeOrderDetailBean.getSenderCityId())
                                 .orderAmountBase(dwdTradeOrderDetailBean.getAmount())
                                 // 右移八小时
@@ -66,41 +67,22 @@ public class DwsTradeOrgOrderDay {
                 });
 
         // TODO 4. 关联机构信息
-        // 4.1 关联快递员id
-        SingleOutputStreamOperator<DwsTradeOrgOrderDayBean> withCourierIdStream = AsyncDataStream.unorderedWait(
-                mappedStream,
-                new DimAsyncFunction<DwsTradeOrgOrderDayBean>("dim_express_courier_complex") {
-                    @Override
-                    public void join(DwsTradeOrgOrderDayBean bean, JSONObject dimJsonObj) throws Exception {
-                        bean.setCourierEmpId(dimJsonObj.getString("courier_emp_id".toUpperCase()));
-                    }
-
-                    @Override
-                    public Object getCondition(DwsTradeOrgOrderDayBean bean) {
-                        String senderComplexId = bean.getComplexId();
-                        return Tuple2.of("complex_id", senderComplexId);
-                    }
-                },
-                5 * 60,
-                TimeUnit.SECONDS
-        ).uid("with_courier_id_stream");
-
-        // 4.2 关联机构id
         SingleOutputStreamOperator<DwsTradeOrgOrderDayBean> withOrgIdStream = AsyncDataStream.unorderedWait(
-                withCourierIdStream,
-                new DimAsyncFunction<DwsTradeOrgOrderDayBean>("dim_express_courier") {
+                mappedStream,
+                new DimAsyncFunction<DwsTradeOrgOrderDayBean>("dim_base_organ") {
                     @Override
                     public void join(DwsTradeOrgOrderDayBean bean, JSONObject dimJsonObj) throws Exception {
-                        bean.setOrgId(dimJsonObj.getString("org_id".toUpperCase()));
+                        bean.setOrgId(dimJsonObj.getString("id".toUpperCase()));
+                        bean.setOrgName(dimJsonObj.getString("org_name".toUpperCase()));
                     }
 
                     @Override
                     public Object getCondition(DwsTradeOrgOrderDayBean bean) {
-                        return Tuple2.of("emp_id", bean.getCourierEmpId());
+                        return Tuple2.of("region_id", bean.getSenderDistrictId());
                     }
                 }, 5 * 60,
                 TimeUnit.SECONDS
-        ).uid("with_org_id_stream");
+        ).uid("with_org_info_stream");
 
         // TODO 5. 统计订单数和订单金额
         KeyedStream<DwsTradeOrgOrderDayBean, String> keyedByOrderIdStream =
@@ -196,27 +178,8 @@ public class DwsTradeOrgOrderDay {
         ).uid("aggregate_stream");
 
         // TODO 11. 补充维度信息
-        // 11.1 关联机构信息
-        SingleOutputStreamOperator<DwsTradeOrgOrderDayBean> withOrgNameStream = AsyncDataStream.unorderedWait(
-                aggregatedStream,
-                new DimAsyncFunction<DwsTradeOrgOrderDayBean>("dim_base_organ") {
-                    @Override
-                    public void join(DwsTradeOrgOrderDayBean bean, JSONObject dimJsonObj) throws Exception {
-                        bean.setOrgName(dimJsonObj.getString("org_name".toUpperCase()));
-                    }
-
-                    @Override
-                    public Object getCondition(DwsTradeOrgOrderDayBean bean) {
-                        return bean.getOrgId();
-                    }
-                },
-                5 * 60,
-                TimeUnit.SECONDS
-        ).uid("with_org_name_stream");
-
-        // 11.2 关联城市信息
         SingleOutputStreamOperator<DwsTradeOrgOrderDayBean> fullStream = AsyncDataStream.unorderedWait(
-                withOrgNameStream,
+                aggregatedStream,
                 new DimAsyncFunction<DwsTradeOrgOrderDayBean>("dim_base_region_info") {
                     @Override
                     public void join(DwsTradeOrgOrderDayBean bean, JSONObject dimJsonObj) throws Exception {
@@ -234,7 +197,7 @@ public class DwsTradeOrgOrderDay {
 
         // TODO 12. 写出到 ClickHouse
         fullStream.addSink(ClickHouseUtil.<DwsTradeOrgOrderDayBean>getJdbcSink(
-                "insert into dws_trade_org_order_day_base values(?,?,?,?,?,?,?,?)"))
+                        "insert into dws_trade_org_order_day_base values(?,?,?,?,?,?,?,?)"))
                 .uid("clickhouse_stream");
 
         env.execute();

@@ -19,13 +19,13 @@ import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.common.time.Time;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.streaming.api.datastream.*;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
 import org.apache.flink.streaming.api.functions.windowing.ProcessWindowFunction;
 import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
-import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer;
 import org.apache.flink.util.Collector;
 
 import java.time.Duration;
@@ -42,8 +42,9 @@ public class DwsTransOrgDeliverSucDay {
         // TODO 2. 从 Kafka tms_dwd_trans_deliver_detail 主题读取数据
         String topic = "tms_dwd_trans_deliver_detail";
         String groupId = "dws_trans_org_deliver_suc_day";
-        FlinkKafkaConsumer<String> kafkaConsumer = KafkaUtil.getKafkaConsumer(topic, groupId, args);
-        SingleOutputStreamOperator<String> source = env.addSource(kafkaConsumer)
+        KafkaSource<String> kafkaConsumer = KafkaUtil.getKafkaConsumer(topic, groupId, args);
+        SingleOutputStreamOperator<String> source = env
+                .fromSource(kafkaConsumer, WatermarkStrategy.noWatermarks(), "kafka_source")
                 .uid("kafka_source");
 
         // TODO 3. 转换数据结构
@@ -118,17 +119,17 @@ public class DwsTransOrgDeliverSucDay {
 
         ).uid("watermark_stream");
 
-        // TODO 6. 按照机构 ID 分组
+        // TODO 7. 按照机构 ID 分组
         KeyedStream<DwsTransOrgDeliverSucDayBean, String> keyedStream = withWatermarkStream.keyBy(DwsTransOrgDeliverSucDayBean::getOrgId);
 
-        // TODO 7. 开窗
+        // TODO 8. 开窗
         WindowedStream<DwsTransOrgDeliverSucDayBean, String, TimeWindow> windowStream =
                 keyedStream.window(TumblingEventTimeWindows.of(org.apache.flink.streaming.api.windowing.time.Time.days(1L)));
 
-        // TODO 8. 引入触发器
+        // TODO 9. 引入触发器
         WindowedStream<DwsTransOrgDeliverSucDayBean, String, TimeWindow> triggerStream = windowStream.trigger(new MyTriggerFunction<>());
 
-        // TODO 9. 聚合
+        // TODO 10. 聚合
         SingleOutputStreamOperator<DwsTransOrgDeliverSucDayBean> aggregatedStream = triggerStream.aggregate(
                 new MyAggregationFunction<DwsTransOrgDeliverSucDayBean>() {
                     @Override
@@ -155,8 +156,8 @@ public class DwsTransOrgDeliverSucDay {
                 }
         ).uid("aggregate_stream");
 
-        // TODO 10. 补全维度信息
-        // 10.1 补充机构名称
+        // TODO 11. 补全维度信息
+        // 11.1 补充机构名称
         SingleOutputStreamOperator<DwsTransOrgDeliverSucDayBean> withOrgNameAndRegionIdStream = AsyncDataStream.unorderedWait(
                 aggregatedStream,
                 new DimAsyncFunction<DwsTransOrgDeliverSucDayBean>("dim_base_organ".toUpperCase()) {
@@ -173,7 +174,7 @@ public class DwsTransOrgDeliverSucDay {
                 60, TimeUnit.SECONDS
         ).uid("with_org_name_and_region_id_stream");
 
-        // 10.2 补充城市名称
+        // 11.2 补充城市名称
         SingleOutputStreamOperator<DwsTransOrgDeliverSucDayBean> withCityNameStream = AsyncDataStream.unorderedWait(
                 withOrgNameAndRegionIdStream,
                 new DimAsyncFunction<DwsTransOrgDeliverSucDayBean>("dim_base_region_info".toUpperCase()) {
@@ -190,7 +191,7 @@ public class DwsTransOrgDeliverSucDay {
                 60, TimeUnit.SECONDS
         ).uid("with_city_name_stream");
 
-        // 10.3 补充省份名称
+        // 11.3 补充省份名称
         SingleOutputStreamOperator<DwsTransOrgDeliverSucDayBean> fullStream = AsyncDataStream.unorderedWait(
                 withCityNameStream,
                 new DimAsyncFunction<DwsTransOrgDeliverSucDayBean>("dim_base_region_info".toUpperCase()) {
@@ -207,7 +208,7 @@ public class DwsTransOrgDeliverSucDay {
                 60, TimeUnit.SECONDS
         ).uid("with_province_name_stream");
 
-        // TODO 11. 写出到 ClickHouse
+        // TODO 12. 写出到 ClickHouse
         fullStream.addSink(
                 ClickHouseUtil.getJdbcSink("insert into dws_trans_org_deliver_suc_day_base values(?,?,?,?,?,?,?,?,?)")
         ).uid("clickhouse_stream");

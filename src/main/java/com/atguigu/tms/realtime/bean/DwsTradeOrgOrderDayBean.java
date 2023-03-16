@@ -28,13 +28,9 @@ public class DwsTradeOrgOrderDayBean {
     @TransientSink
     String orderId;
 
-    // 小区ID
+    // 发件方地区ID
     @TransientSink
-    String complexId;
-
-    // 快递员ID
-    @TransientSink
-    String courierEmpId;
+    String senderDistrictId;
 
     // 下单金额
     BigDecimal orderAmountBase;

@@ -7,12 +7,13 @@ import com.atguigu.tms.realtime.util.CreateEnvUtil;
 import com.atguigu.tms.realtime.util.DateFormatUtil;
 import com.atguigu.tms.realtime.util.KafkaUtil;
 import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.FilterFunction;
+import org.apache.flink.connector.kafka.sink.KafkaSink;
+import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.ProcessFunction;
-import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer;
-import org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer;
 import org.apache.flink.util.Collector;
 
 public class DwdTransTransFinish {
@@ -26,9 +27,10 @@ public class DwdTransTransFinish {
         // TODO 2. 从 Kafka tms_ods 主题读取数据
         String topic = "tms_ods";
         String groupId = "dwd_trans_trans_finish";
-        FlinkKafkaConsumer<String> kafkaConsumer = KafkaUtil.getKafkaConsumer(topic, groupId, args);
-        SingleOutputStreamOperator<String> source =
-                env.addSource(kafkaConsumer).uid("kafka_source");
+        KafkaSource<String> kafkaConsumer = KafkaUtil.getKafkaConsumer(topic, groupId, args);
+        SingleOutputStreamOperator<String> source = env
+                .fromSource(kafkaConsumer, WatermarkStrategy.noWatermarks(), "kafka_source")
+                .uid("kafka_source");
 
         // TODO 3. 筛选运输完成数据
         SingleOutputStreamOperator<String> filteredStream = source.filter(
@@ -37,7 +39,7 @@ public class DwdTransTransFinish {
                     public boolean filter(String jsonStr) throws Exception {
                         JSONObject jsonObj = JSON.parseObject(jsonStr);
                         String table = jsonObj.getJSONObject("source").getString("table");
-                        if (!table.equals("transport_task")) {
+                        if (!"transport_task".equals(table)) {
                             return false;
                         }
 
@@ -49,7 +51,7 @@ public class DwdTransTransFinish {
                         JSONObject after = jsonObj.getJSONObject("after");
                         String oldActualEndTime = before.getString("actual_end_time");
                         String actualEndTime = after.getString("actual_end_time");
-                        return op.equals("u") &&
+                        return "u".equals(op) &&
                                 oldActualEndTime == null &&
                                 actualEndTime != null;
                     }
@@ -96,7 +98,7 @@ public class DwdTransTransFinish {
 
                         driver1Name = driver1Name.charAt(0) +
                                 driver1Name.substring(1).replaceAll(".", "\\*");
-                        driver2Name = driver2Name.charAt(0) +
+                        driver2Name = driver2Name == null ? driver2Name : driver2Name.charAt(0) +
                                 driver2Name.substring(1).replaceAll(".", "\\*");
                         truckNo = DigestUtils.md5Hex(truckNo);
 
@@ -112,9 +114,9 @@ public class DwdTransTransFinish {
         // TODO 5. 写出到 Kafka tms_dwd_trans_trans_finish 主题
         // 物流域运输完成事实主题
         String sinkTopic = "tms_dwd_trans_trans_finish";
-        FlinkKafkaProducer<String> kafkaProducer = KafkaUtil.getKafkaProducer(sinkTopic, args);
+        KafkaSink<String> kafkaProducer = KafkaUtil.getKafkaProducer(sinkTopic, args);
         processedStream
-                .addSink(kafkaProducer)
+                .sinkTo(kafkaProducer)
                 .uid("data_kafka_sink");
 
         env.execute();

@@ -19,15 +19,15 @@ public class FlinkCdcTest {
         StreamExecutionEnvironment env = CreateEnvUtil.getStreamEnv(args);
         env.disableOperatorChaining();
 
-        DataStreamSource<String> source1 = env.socketTextStream("hadoop102", 10000);
+//        DataStreamSource<String> source1 = env.socketTextStream("hadoop102", 10000);
 
         MySqlSource<String> mysqlSource = MySqlSource.<String>builder()
                 .hostname("hadoop102")
                 .port(3306)
                 .username("root")
                 .password("000000")
-                .databaseList("tms")
-                .tableList(".*")
+                .databaseList("tms_config")
+                .tableList("tms_config.tms_config_dim")
                 .deserializer(new JsonDebeziumDeserializationSchema())
                 .startupOptions(StartupOptions.initial())
                 .build();
@@ -42,9 +42,9 @@ public class FlinkCdcTest {
 
         MapStateDescriptor<String, String> v = new MapStateDescriptor<>("12", String.class, String.class);
 
-        KeyedStream<String, String> keyedStream = source1.keyBy(r -> "1");
-        KeyedStream<String, String> keyedStream1 = configSource.keyBy(r -> "1");
-        BroadcastStream<String> broadcast = keyedStream1.broadcast(v);
+//        KeyedStream<String, String> keyedStream = source1.keyBy(r -> "1");
+//        KeyedStream<String, String> keyedStream1 = configSource.keyBy(r -> "1");
+//        BroadcastStream<String> broadcast = keyedStream1.broadcast(v);
 //        keyedStream.connect(broadcast)
 //                        .process(new )
 

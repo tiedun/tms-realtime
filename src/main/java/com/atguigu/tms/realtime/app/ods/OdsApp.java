@@ -10,10 +10,10 @@ import com.ververica.cdc.connectors.mysql.source.MySqlSource;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.api.java.functions.KeySelector;
+import org.apache.flink.connector.kafka.sink.KafkaSink;
 import org.apache.flink.streaming.api.datastream.KeyedStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer;
 import org.apache.flink.util.Collector;
 
 public class OdsApp {
@@ -37,25 +37,25 @@ public class OdsApp {
         // TODO 2. 处理事实数据（离线实时共用）
         String dwdOption = "dwd";
         String dwdServerId = "6030";
-        String dwdSourceName = "ods_dwd_source";
-        sinkToKafka(dwdOption, dwdServerId, dwdSourceName, env, args);
+        String dwdSinkName = "ods_dwd_source";
+        sinkToKafka(dwdOption, dwdServerId, dwdSinkName, env, args);
 
         // TODO 4. 处理实时维度数据
         String realtimeDimOption = "realtime_dim";
         String realtimeDimServerId = "6040";
-        String realtimeDimSourceName = "ods_realtime_dim_source";
-        sinkToKafka(realtimeDimOption, realtimeDimServerId, realtimeDimSourceName, env, args);
+        String realtimeDimSinkName = "ods_realtime_dim_source";
+        sinkToKafka(realtimeDimOption, realtimeDimServerId, realtimeDimSinkName, env, args);
 
         env.execute();
     }
 
     public static void sinkToKafka(
-            String option, String serverId, String sourceName, StreamExecutionEnvironment env, String[] args) {
+            String option, String serverId, String sinkName, StreamExecutionEnvironment env, String[] args) {
         // 1. 读取数据
         MySqlSource<String> mysqlSource = CreateEnvUtil.getJSONSchemaMysqlSource(option, serverId, args);
         SingleOutputStreamOperator<String> source = env
-                .fromSource(mysqlSource, WatermarkStrategy.noWatermarks(), sourceName)
-                .uid(option + "_ods_app_" + sourceName)
+                .fromSource(mysqlSource, WatermarkStrategy.noWatermarks(), sinkName)
+                .uid(option + "_ods_app_" + sinkName)
                 .setParallelism(1);
 
         // 2. ETL
@@ -66,7 +66,7 @@ public class OdsApp {
                         try {
                             JSONObject jsonObj = JSON.parseObject(jsonStr);
                             if (jsonObj.getJSONObject("after") != null
-                                    && !jsonObj.getString("op").equals("d")) {
+                                    && !"d".equals(jsonObj.getString("op"))) {
                                 Long tsMs = jsonObj.getLong("ts_ms");
                                 jsonObj.remove("ts_ms");
                                 jsonObj.put("ts", tsMs);
@@ -92,9 +92,9 @@ public class OdsApp {
 
         // 4. 写入 Kafka 对应主题
         String topic = "tms_ods";
-        FlinkKafkaProducer<String> kafkaProducer = KafkaUtil.getKafkaProducer(topic, args);
+        KafkaSink<String> kafkaProducer = KafkaUtil.getKafkaProducer(topic, args, sinkName);
         keyedStream
-                .addSink(kafkaProducer)
-                .uid(option + "_ods_app_sink_to_tms_ods_" + sourceName);
+                .sinkTo(kafkaProducer)
+                .uid(option + "_ods_app_sink_to_tms_ods_" + sinkName);
     }
 }

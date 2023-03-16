@@ -9,13 +9,14 @@ import com.atguigu.tms.realtime.bean.DwdOrderOrgBoundOriginBean;
 import com.atguigu.tms.realtime.util.CreateEnvUtil;
 import com.atguigu.tms.realtime.util.DateFormatUtil;
 import com.atguigu.tms.realtime.util.KafkaUtil;
+import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.FilterFunction;
+import org.apache.flink.connector.kafka.sink.KafkaSink;
+import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.ProcessFunction;
-import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer;
-import org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer;
 import org.apache.flink.util.Collector;
 import org.apache.flink.util.OutputTag;
 
@@ -30,9 +31,10 @@ public class DwdBoundRelevantApp {
         // TODO 2. 从 Kafka tms_ods 主题读取数据
         String topic = "tms_ods";
         String groupId = "dwd_bound_relevant_app";
-        FlinkKafkaConsumer<String> kafkaConsumer = KafkaUtil.getKafkaConsumer(topic, groupId, args);
-        SingleOutputStreamOperator<String> source =
-                env.addSource(kafkaConsumer).uid("kafka-source");
+        KafkaSource<String> kafkaConsumer = KafkaUtil.getKafkaConsumer(topic, groupId, args);
+        SingleOutputStreamOperator<String> source = env
+                .fromSource(kafkaConsumer, WatermarkStrategy.noWatermarks(), "kafka_source")
+                .uid("kafka_source");
 
         // TODO 3. 筛选中转相关数据
         SingleOutputStreamOperator<String> filteredStream = source.filter(
@@ -155,19 +157,19 @@ public class DwdBoundRelevantApp {
         // 中转域出库事实主题
         String outboundTopic = "tms_dwd_bound_outbound";
 
-        FlinkKafkaProducer<String> inboundProducer = KafkaUtil.getKafkaProducer(inboundTopic, args);
-        FlinkKafkaProducer<String> sortProducer = KafkaUtil.getKafkaProducer(sortTopic, args);
-        FlinkKafkaProducer<String> outboundProducer = KafkaUtil.getKafkaProducer(outboundTopic, args);
+        KafkaSink<String> inboundProducer = KafkaUtil.getKafkaProducer(inboundTopic, args);
+        KafkaSink<String> sortProducer = KafkaUtil.getKafkaProducer(sortTopic, args);
+        KafkaSink<String> outboundProducer = KafkaUtil.getKafkaProducer(outboundTopic, args);
 
         processedStream
-                .addSink(inboundProducer)
+                .sinkTo(inboundProducer)
                 .uid("inbound_producer");
         sortStream
-                .addSink(sortProducer)
+                .sinkTo(sortProducer)
                 .uid("sort_producer");
         outboundStream
-                .addSink(outboundProducer)
-                .uid("outbound_prducer");
+                .sinkTo(outboundProducer)
+                .uid("outbound_producer");
 
         env.execute();
     }
